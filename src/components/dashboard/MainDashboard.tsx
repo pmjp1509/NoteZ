@@ -1,9 +1,6 @@
 import { NowPlayingCard } from "@/components/dashboard/NowPlayingCard";
-import { MoodRecommendations } from "@/components/dashboard/MoodRecommendations";
-import { CommunityPlaylists } from "@/components/dashboard/CommunityPlaylists";
-import { LyricsPanel } from "@/components/dashboard/LyricsPanel";
-import { LeftSidebar } from "@/components/dashboard/LeftSidebar";
-import { RightSidebar } from "@/components/dashboard/RightSidebar";
+import { DashboardGrid } from "@/components/dashboard/DashboardGrid";
+import { BottomRecommendations } from "@/components/dashboard/BottomRecommendations";
 import { useEffect, useRef, useState } from "react";
 import { fetchRandomSongs, type SongItem } from "@/lib/songs";
 
@@ -98,32 +95,19 @@ export function MainDashboard() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[220px,1fr,320px] gap-4 sm:gap-6 p-3 sm:p-6 overflow-y-auto">
-      <LeftSidebar />
-      <main className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-          <div className="md:col-span-2 lg:col-span-2">
-            <NowPlayingCard
-              song={currentSong}
-              isPlaying={isPlaying}
-              progressPct={progressPct}
-              duration={duration}
-              volumePct={volume}
-              onTogglePlay={togglePlay}
-              onSeekPct={seekToPct}
-              onVolumePct={setVolumePct}
-            />
-          </div>
-          <div className="space-y-4">
-            <MoodRecommendations />
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-          <CommunityPlaylists onPlay={(song) => playSong(song)} />
-          <LyricsPanel />
-        </div>
-      </main>
-      <RightSidebar />
+    <div className="pb-32">
+      <DashboardGrid onPlay={(song) => playSong(song)} />
+      <BottomRecommendations 
+        currentSong={currentSong}
+        isPlaying={isPlaying}
+        progressPct={progressPct}
+        duration={duration}
+        volumePct={volume}
+        onTogglePlay={togglePlay}
+        onSeekPct={seekToPct}
+        onVolumePct={setVolumePct}
+        onPlay={(song) => playSong(song)}
+      />
     </div>
   );
 }

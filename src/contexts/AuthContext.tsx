@@ -44,14 +44,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }
 
   async function signInWithGoogle() {
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: window.location.origin
-      }
-    });
-    if (error) throw error;
-    return data;
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/dashboard`
+        }
+      });
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Google OAuth error:', error);
+      throw new Error('Google sign-in is not properly configured. Please use email/password authentication.');
+    }
   }
 
   async function logout() {
