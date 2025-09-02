@@ -48,23 +48,63 @@ export function Library({ onPlay, onPlaylistSelect }: LibraryProps) {
   const [createSuccess, setCreateSuccess] = useState('');
 
   useEffect(() => {
-    fetchLibraryData();
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetchLibraryData();
+    }
   }, [activeTab]);
 
   const fetchLibraryData = async () => {
     setIsLoading(true);
     try {
       const token = localStorage.getItem('token');
-      if (!token) return;
+      if (!token) {
+        console.log('No token found, skipping data fetch');
+        return;
+      }
 
-      // Always fetch favorites and playlists for the playlists tab
+      console.log('Fetching library data...');
       if (activeTab === 'playlists') {
-        await Promise.all([
-          fetchFavorites(token),
-          fetchPlaylists(token)
-        ]);
+        try {
+          // Fetch playlists first
+          const playlistResponse = await fetch('http://localhost:3001/api/playlists/me', {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+
+          if (playlistResponse.ok) {
+            const data = await playlistResponse.json();
+            console.log('Playlists fetched:', data.playlists);
+            setPlaylists(data.playlists || []);
+          } else {
+            console.error('Failed to fetch playlists:', await playlistResponse.text());
+          }
+
+          // Then fetch favorites
+          const favoritesResponse = await fetch('http://localhost:3001/api/favorites', {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+
+          if (favoritesResponse.ok) {
+            const data = await favoritesResponse.json();
+            console.log('Favorites fetched:', data.favorites);
+            setFavorites(data.favorites || []);
+          } else {
+            console.error('Failed to fetch favorites:', await favoritesResponse.text());
+          }
+        } catch (error) {
+          console.error('Error fetching playlists or favorites:', error);
+        }
       } else {
-        await fetchFollowedCreators(token);
+        try {
+          await fetchFollowedCreators(token);
+          console.log('Successfully fetched followed creators');
+        } catch (error) {
+          console.error('Error fetching followed creators:', error);
+        }
       }
     } catch (error) {
       console.error('Failed to fetch library data:', error);
@@ -90,7 +130,10 @@ export function Library({ onPlay, onPlaylistSelect }: LibraryProps) {
     }
   };
 
-  const fetchPlaylists = async (token: string) => {
+  const refreshPlaylists = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    
     try {
       const response = await fetch('http://localhost:3001/api/playlists/me', {
         headers: {
@@ -100,7 +143,10 @@ export function Library({ onPlay, onPlaylistSelect }: LibraryProps) {
 
       if (response.ok) {
         const data = await response.json();
+        console.log('Refreshing playlists:', data.playlists);
         setPlaylists(data.playlists || []);
+      } else {
+        console.error('Failed to refresh playlists:', await response.text());
       }
     } catch (error) {
       console.error('Failed to fetch playlists:', error);
@@ -164,8 +210,8 @@ export function Library({ onPlay, onPlaylistSelect }: LibraryProps) {
         setShowCreatePlaylist(false);
         setNewPlaylistPublic(true);
         
-        // Refresh playlists to ensure we have the latest data
-        await fetchPlaylists(token);
+        // Refresh the library data to ensure we have the latest playlists
+        await fetchLibraryData();
         
         // Clear success message after 3 seconds
         setTimeout(() => setCreateSuccess(''), 3000);

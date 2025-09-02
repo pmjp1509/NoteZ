@@ -9,6 +9,8 @@ import { BottomPlayer } from "@/components/dashboard/BottomPlayer";
 import { Search, X, Plus, ListPlus, Heart, Play, ArrowLeft } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { fetchRandomSongs, type SongItem } from "@/lib/songs";
+import { AddToPlaylistDialog } from "./AddToPlaylistDialog";
+import { supabase } from "@/config/supabase";
 
 interface Playlist {
   id: string;
@@ -207,14 +209,39 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
     setQueue((prev) => [...prev, song]);
   };
 
+  const [selectedSong, setSelectedSong] = useState<SongItem | null>(null);
+  const [showAddToPlaylist, setShowAddToPlaylist] = useState(false);
+
   const addToPlaylist = (song: SongItem) => {
-    console.log('[MainDashboard] addToPlaylist clicked for', song);
-    alert('Add to playlist: coming soon');
+    setSelectedSong(song);
+    setShowAddToPlaylist(true);
   };
 
-  const likeSong = (song: SongItem) => {
-    console.log('[MainDashboard] likeSong clicked for', song);
-    alert('Favorite song: coming soon');
+  const handleCloseAddToPlaylist = () => {
+    setShowAddToPlaylist(false);
+    setSelectedSong(null);
+  };
+
+  const likeSong = async (song: SongItem) => {
+    try {
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError) throw authError;
+      if (!user) throw new Error('Not authenticated');
+
+      // Add song to user_favorites table
+      const { error } = await supabase
+        .from('user_favorites')
+        .insert([{ 
+          song_id: song.path,
+          user_id: user.id 
+        }]);
+      
+      if (error) throw error;
+      console.log('Song added to favorites');
+    } catch (error) {
+      console.error('Error adding song to favorites:', error);
+    }
   };
 
   const handleSearch = async () => {
@@ -530,6 +557,15 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
         onSeekPct={seekToPct}
         onVolumePct={setVolumePct}
       />
+
+      {/* Add to Playlist Dialog */}
+      {selectedSong && (
+        <AddToPlaylistDialog
+          isOpen={showAddToPlaylist}
+          onClose={handleCloseAddToPlaylist}
+          songPath={selectedSong.path}
+        />
+      )}
     </div>
   );
 }

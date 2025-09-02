@@ -4,9 +4,9 @@ const supabase = require('../config/supabase');
 
 const router = express.Router();
 
-// Middleware to verify JWT token
-const authenticateToken = (req, res, next) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
+// Middleware to verify JWT token and ensure user exists in users table
+const authenticateToken = async (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
   
   console.log('Authenticating token:', token ? 'Token provided' : 'No token');
   
@@ -15,9 +15,44 @@ const authenticateToken = (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-    console.log('Token decoded successfully:', { userId: decoded.userId });
-    req.user = decoded;
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    
+    if (error) {
+      console.error('Token verification failed:', error);
+      throw error;
+    }
+    
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Check if user exists in users table
+    const { data: existingUser, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+
+    if (userError || !existingUser) {
+      // Create user if they don't exist
+      const { data: newUser, error: createError } = await supabase.rpc('create_user_if_not_exists', {
+        user_id: user.id,
+        user_email: user.email,
+        user_name: user.email.split('@')[0],
+        user_full_name: user.user_metadata.full_name || user.user_metadata.name,
+        user_avatar_url: user.user_metadata.avatar_url || user.user_metadata.picture
+      });
+
+      if (createError) {
+        console.error('Failed to create user:', createError);
+        throw createError;
+      }
+      
+      req.user = { ...user, dbUser: newUser };
+    } else {
+      req.user = { ...user, dbUser: existingUser };
+    }
+
     next();
   } catch (error) {
     console.error('Token verification failed:', error);
@@ -30,7 +65,7 @@ router.post('/', authenticateToken, async (req, res) => {
   try {
     const { name, description, isPublic = true } = req.body;
     
-    console.log('Creating playlist request:', { name, description, isPublic, userId: req.user.userId });
+    console.log('Creating playlist request:', { name, description, isPublic, userId: req.user.id });
 
     if (!name) {
       return res.status(400).json({ error: 'Playlist name is required' });
@@ -43,7 +78,7 @@ router.post('/', authenticateToken, async (req, res) => {
       .insert({
         name,
         description,
-        creator_id: req.user.userId,
+        creator_id: req.user.id,
         is_public: isPublic
       })
       .select()
@@ -82,15 +117,19 @@ router.get('/me', authenticateToken, async (req, res) => {
     const { page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
 
+    console.log('Fetching playlists for user:', req.user);
+    
     const { data: playlists, error } = await supabase
       .from('playlists')
       .select(`
         *,
         playlist_songs(count)
       `)
-      .eq('creator_id', req.user.userId)
+      .eq('creator_id', req.user.id)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
+    
+    console.log('Playlists fetched:', { playlists, error });
 
     if (error) {
       return res.status(500).json({ error: 'Failed to fetch playlists' });
