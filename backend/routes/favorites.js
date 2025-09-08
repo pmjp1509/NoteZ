@@ -4,31 +4,44 @@ const supabase = require('../config/supabase');
 
 const router = express.Router();
 
-// Middleware to verify JWT token
-const authenticateToken = (req, res, next) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  
+// Middleware to verify Supabase access token and attach user id
+const authenticateToken = async (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+
   if (!token) {
     return res.status(401).json({ error: 'No token provided' });
   }
 
+  if (token.split('.').length !== 3) {
+    return res.status(400).json({ error: 'Malformed token' });
+  }
+
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-    req.user = decoded;
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error) throw error;
+    if (!user) return res.status(403).json({ error: 'Invalid token' });
+
+    req.user = { id: user.id, email: user.email };
     next();
   } catch (error) {
     return res.status(403).json({ error: 'Invalid token' });
   }
 };
 
-// Get user's favorite songs
+// Get user's favorite songs via Favorites playlist
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const { page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
 
+    // Ensure favorites playlist exists and get its id
+    const { data: favIdData, error: favIdError } = await supabase
+      .rpc('ensure_favorites_playlist', { p_user_id: req.user.id });
+    if (favIdError) return res.status(500).json({ error: 'Failed to get Favorites playlist' });
+
+    // Join playlist_songs to songs for the favorites playlist
     const { data: favorites, error } = await supabase
-      .from('user_favorites')
+      .from('playlist_songs')
       .select(`
         created_at,
         songs(
@@ -43,7 +56,7 @@ router.get('/', authenticateToken, async (req, res) => {
           creator:users!songs_creator_id_fkey(username, full_name, avatar_url)
         )
       `)
-      .eq('user_id', req.user.userId)
+      .eq('playlist_id', favIdData)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -53,6 +66,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
     res.json({
       favorites: favorites.map(fav => ({
+        id: fav.songs.id,
         songId: fav.songs.id,
         title: fav.songs.title,
         artist: fav.songs.artist,
@@ -77,7 +91,7 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
-// Add song to favorites
+// Add song to favorites (Favorites playlist)
 router.post('/', authenticateToken, async (req, res) => {
   try {
     const { songId } = req.body;
@@ -98,12 +112,29 @@ router.post('/', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Song not found' });
     }
 
-    // Add to favorites
+    // Ensure favorites playlist exists
+    const { data: favIdData, error: favIdError } = await supabase
+      .rpc('ensure_favorites_playlist', { p_user_id: req.user.id });
+    if (favIdError) return res.status(500).json({ error: 'Failed to get Favorites playlist' });
+
+    // Get next position
+    const { data: last, error: posError } = await supabase
+      .from('playlist_songs')
+      .select('position')
+      .eq('playlist_id', favIdData)
+      .order('position', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (posError) return res.status(500).json({ error: 'Failed to update favorites' });
+    const nextPos = last?.position ? last.position + 1 : 1;
+
+    // Add to Favorites playlist
     const { error: favError } = await supabase
-      .from('user_favorites')
+      .from('playlist_songs')
       .insert({
-        user_id: req.user.userId,
-        song_id: songId
+        playlist_id: favIdData,
+        song_id: songId,
+        position: nextPos
       });
 
     if (favError) {
@@ -113,8 +144,8 @@ router.post('/', authenticateToken, async (req, res) => {
       return res.status(500).json({ error: 'Failed to add to favorites' });
     }
 
-    // Update creator stats (increment total_favorites)
-    await supabase.rpc('increment_creator_favorites', { song_id: songId });
+    // Optional: update stats via RPC if exists (removed debug raw SQL)
+    console.warn('[favorites.js] Skipping optional stats update RPC placeholder');
 
     res.json({ 
       message: 'Song added to favorites',
@@ -130,24 +161,29 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 });
 
-// Remove song from favorites
+// Remove song from favorites (Favorites playlist)
 router.delete('/:songId', authenticateToken, async (req, res) => {
   try {
     const { songId } = req.params;
 
-    // Remove from favorites
+    // Ensure favorites playlist exists and get its id
+    const { data: favIdData, error: favIdError } = await supabase
+      .rpc('ensure_favorites_playlist', { p_user_id: req.user.id });
+    if (favIdError) return res.status(500).json({ error: 'Failed to get Favorites playlist' });
+
+    // Remove from favorites playlist
     const { error } = await supabase
-      .from('user_favorites')
+      .from('playlist_songs')
       .delete()
-      .eq('user_id', req.user.userId)
+      .eq('playlist_id', favIdData)
       .eq('song_id', songId);
 
     if (error) {
       return res.status(500).json({ error: 'Failed to remove from favorites' });
     }
 
-    // Update creator stats (decrement total_favorites)
-    await supabase.rpc('decrement_creator_favorites', { song_id: songId });
+    // Optional: update stats via RPC if exists (removed debug raw SQL)
+    console.warn('[favorites.js] Skipping optional stats decrement RPC placeholder');
 
     res.json({ message: 'Song removed from favorites' });
 
@@ -162,10 +198,16 @@ router.get('/check/:songId', authenticateToken, async (req, res) => {
   try {
     const { songId } = req.params;
 
+    // Ensure favorites playlist exists and get its id
+    const { data: favIdData, error: favIdError } = await supabase
+      .rpc('ensure_favorites_playlist', { p_user_id: req.user.id });
+    if (favIdError) return res.status(500).json({ error: 'Failed to get Favorites playlist' });
+
+    // Check if song is in Favorites playlist
     const { data: favorite, error } = await supabase
-      .from('user_favorites')
+      .from('playlist_songs')
       .select('id')
-      .eq('user_id', req.user.userId)
+      .eq('playlist_id', favIdData)
       .eq('song_id', songId)
       .maybeSingle();
 
@@ -191,8 +233,13 @@ router.get('/category/:categoryName', authenticateToken, async (req, res) => {
     const { page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
 
+    // Ensure favorites playlist exists and get its id
+    const { data: favIdData, error: favIdError } = await supabase
+      .rpc('ensure_favorites_playlist', { p_user_id: req.user.id });
+    if (favIdError) return res.status(500).json({ error: 'Failed to get Favorites playlist' });
+
     const { data: favorites, error } = await supabase
-      .from('user_favorites')
+      .from('playlist_songs')
       .select(`
         created_at,
         songs(
@@ -207,7 +254,7 @@ router.get('/category/:categoryName', authenticateToken, async (req, res) => {
           creator:users!songs_creator_id_fkey(username, full_name, avatar_url)
         )
       `)
-      .eq('user_id', req.user.userId)
+      .eq('playlist_id', favIdData)
       .eq('songs.song_categories.name', categoryName)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
@@ -218,6 +265,7 @@ router.get('/category/:categoryName', authenticateToken, async (req, res) => {
 
     res.json({
       favorites: favorites.map(fav => ({
+        id: fav.songs.id,
         songId: fav.songs.id,
         title: fav.songs.title,
         artist: fav.songs.artist,
@@ -249,8 +297,13 @@ router.get('/creator/:creatorId', authenticateToken, async (req, res) => {
     const { page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
 
+    // Ensure favorites playlist exists and get its id
+    const { data: favIdData, error: favIdError } = await supabase
+      .rpc('ensure_favorites_playlist', { p_user_id: req.user.id });
+    if (favIdError) return res.status(500).json({ error: 'Failed to get Favorites playlist' });
+
     const { data: favorites, error } = await supabase
-      .from('user_favorites')
+      .from('playlist_songs')
       .select(`
         created_at,
         songs(
@@ -265,7 +318,7 @@ router.get('/creator/:creatorId', authenticateToken, async (req, res) => {
           creator:users!songs_creator_id_fkey(username, full_name, avatar_url)
         )
       `)
-      .eq('user_id', req.user.userId)
+      .eq('playlist_id', favIdData)
       .eq('songs.creator_id', creatorId)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
@@ -276,6 +329,7 @@ router.get('/creator/:creatorId', authenticateToken, async (req, res) => {
 
     res.json({
       favorites: favorites.map(fav => ({
+        id: fav.songs.id,
         songId: fav.songs.id,
         title: fav.songs.title,
         artist: fav.songs.artist,
@@ -303,10 +357,15 @@ router.get('/creator/:creatorId', authenticateToken, async (req, res) => {
 // Get user's favorite songs count
 router.get('/count', authenticateToken, async (req, res) => {
   try {
+    // Ensure favorites playlist exists and get its id
+    const { data: favIdData, error: favIdError } = await supabase
+      .rpc('ensure_favorites_playlist', { p_user_id: req.user.id });
+    if (favIdError) return res.status(500).json({ error: 'Failed to get Favorites playlist' });
+
     const { data: count, error } = await supabase
-      .from('user_favorites')
+      .from('playlist_songs')
       .select('*', { count: 'exact', head: true })
-      .eq('user_id', req.user.userId);
+      .eq('playlist_id', favIdData);
 
     if (error) {
       return res.status(500).json({ error: 'Failed to get favorites count' });

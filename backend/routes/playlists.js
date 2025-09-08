@@ -4,24 +4,24 @@ const supabase = require('../config/supabase');
 
 const router = express.Router();
 
-// Middleware to verify JWT token and ensure user exists in users table
+// Middleware to verify Supabase access token and ensure user exists in users table
 const authenticateToken = async (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
-  
-  console.log('Authenticating token:', token ? 'Token provided' : 'No token');
-  
+
   if (!token) {
     return res.status(401).json({ error: 'No token provided' });
   }
 
+  // Validate token format
+  if (token.split('.').length !== 3) {
+    return res.status(400).json({ error: 'Malformed token' });
+  }
+
   try {
     const { data: { user }, error } = await supabase.auth.getUser(token);
-    
-    if (error) {
-      console.error('Token verification failed:', error);
-      throw error;
-    }
-    
+
+    if (error) throw error;
+
     if (!user) {
       throw new Error('User not found');
     }
@@ -33,29 +33,28 @@ const authenticateToken = async (req, res, next) => {
       .eq('id', user.id)
       .single();
 
+    let dbUser = existingUser;
     if (userError || !existingUser) {
       // Create user if they don't exist
       const { data: newUser, error: createError } = await supabase.rpc('create_user_if_not_exists', {
         user_id: user.id,
         user_email: user.email,
-        user_name: user.email.split('@')[0],
-        user_full_name: user.user_metadata.full_name || user.user_metadata.name,
-        user_avatar_url: user.user_metadata.avatar_url || user.user_metadata.picture
+        user_name: user.email?.split('@')[0],
+        user_full_name: user.user_metadata?.full_name || user.user_metadata?.name,
+        user_avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture
       });
 
       if (createError) {
-        console.error('Failed to create user:', createError);
-        throw createError;
+        return res.status(500).json({ error: 'Failed to ensure user profile' });
       }
-      
-      req.user = { ...user, dbUser: newUser };
-    } else {
-      req.user = { ...user, dbUser: existingUser };
+
+      dbUser = newUser;
     }
+
+    req.user = { id: user.id, email: user.email, username: dbUser?.username || user.user_metadata?.user_name || user.email?.split('@')[0], dbUser };
 
     next();
   } catch (error) {
-    console.error('Token verification failed:', error);
     return res.status(403).json({ error: 'Invalid token' });
   }
 };
@@ -291,7 +290,7 @@ router.get('/me/:id', authenticateToken, async (req, res) => {
         )
       `)
       .eq('id', id)
-      .eq('creator_id', req.user.userId)
+      .eq('creator_id', req.user.id)
       .single();
 
     if (error || !playlist) {
@@ -330,7 +329,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Playlist not found' });
     }
 
-    if (existingPlaylist.creator_id !== req.user.userId) {
+    if (existingPlaylist.creator_id !== req.user.id) {
       return res.status(403).json({ error: 'You can only update your own playlists' });
     }
 
@@ -384,7 +383,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Playlist not found' });
     }
 
-    if (playlist.creator_id !== req.user.userId) {
+    if (playlist.creator_id !== req.user.id) {
       return res.status(403).json({ error: 'You can only delete your own playlists' });
     }
 
@@ -427,7 +426,7 @@ router.post('/:id/songs', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Playlist not found' });
     }
 
-    if (playlist.creator_id !== req.user.userId) {
+    if (playlist.creator_id !== req.user.id) {
       return res.status(403).json({ error: 'You can only modify your own playlists' });
     }
 
@@ -494,7 +493,7 @@ router.delete('/:id/songs/:songId', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Playlist not found' });
     }
 
-    if (playlist.creator_id !== req.user.userId) {
+    if (playlist.creator_id !== req.user.id) {
       return res.status(403).json({ error: 'You can only modify your own playlists' });
     }
 

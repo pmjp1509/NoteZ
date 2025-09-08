@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Button } from '../ui/button';
 import { Card } from '../ui/card';
-import { useSupabase } from '../../config/supabase';
+import { supabase } from '../../config/supabase';
 
 interface Playlist {
   id: string;

@@ -8,3 +8,8 @@ if (!supabaseUrl || !supabaseKey) {
 }
 
 export const supabase = createClient(supabaseUrl, supabaseKey)
+
+// Custom hook to use Supabase
+export const useSupabase = () => {
+  return { supabase }
+}

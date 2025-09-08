@@ -21,17 +21,59 @@ const upload = multer({
   }
 });
 
-// Middleware to verify JWT token
-const authenticateToken = (req, res, next) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  
+// Middleware to verify Supabase access token and attach user profile
+const authenticateToken = async (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+
   if (!token) {
     return res.status(401).json({ error: 'No token provided' });
   }
 
+  // Validate token format
+  if (token.split('.').length !== 3) {
+    return res.status(400).json({ error: 'Malformed token' });
+  }
+
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-    req.user = decoded;
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+
+    if (error) {
+      throw error;
+    }
+
+    if (!user) {
+      return res.status(403).json({ error: 'Invalid token' });
+    }
+
+    // Ensure user exists in users table; create if missing via RPC
+    const { data: existingUser, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+
+    let dbUser = existingUser;
+    if (userError || !existingUser) {
+      const { data: newUser, error: createError } = await supabase.rpc('create_user_if_not_exists', {
+        user_id: user.id,
+        user_email: user.email,
+        user_name: user.email?.split('@')[0],
+        user_full_name: user.user_metadata?.full_name || user.user_metadata?.name,
+        user_avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture
+      });
+      if (createError) {
+        return res.status(500).json({ error: 'Failed to ensure user profile' });
+      }
+      dbUser = newUser;
+    }
+
+    req.user = {
+      id: user.id,
+      email: user.email,
+      username: dbUser?.username || user.user_metadata?.user_name || user.email?.split('@')[0],
+      dbUser
+    };
+
     next();
   } catch (error) {
     return res.status(403).json({ error: 'Invalid token' });
@@ -44,7 +86,7 @@ router.get('/me', authenticateToken, async (req, res) => {
     const { data: user, error } = await supabase
       .from('users')
       .select('*')
-      .eq('id', req.user.userId)
+      .eq('id', req.user.id)
       .single();
 
     if (error || !user) {
@@ -85,7 +127,7 @@ router.put('/me', authenticateToken, async (req, res) => {
         gender: gender || undefined,
         updated_at: new Date().toISOString()
       })
-      .eq('id', req.user.userId)
+      .eq('id', req.user.id)
       .select()
       .single();
 
@@ -122,7 +164,7 @@ router.post('/me/avatar', authenticateToken, upload.single('avatar'), async (req
     }
 
     // Upload avatar to Supabase Storage
-    const fileName = `avatars/${req.user.userId}-${Date.now()}-${avatarFile.originalname}`;
+    const fileName = `avatars/${req.user.id}-${Date.now()}-${avatarFile.originalname}`;
     const { data: avatarData, error: avatarError } = await supabase.storage
       .from('avatars')
       .upload(fileName, avatarFile.buffer, {
@@ -146,7 +188,7 @@ router.post('/me/avatar', authenticateToken, upload.single('avatar'), async (req
         avatar_url: avatarUrl.publicUrl,
         updated_at: new Date().toISOString()
       })
-      .eq('id', req.user.userId)
+      .eq('id', req.user.id)
       .select()
       .single();
 
@@ -255,10 +297,10 @@ router.post('/friends/request', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'Receiver username is required' });
     }
 
-    // Get receiver user
+    // Get receiver user (with role)
     const { data: receiver, error: receiverError } = await supabase
       .from('users')
-      .select('id')
+      .select('id, role')
       .eq('username', receiverUsername)
       .single();
 
@@ -266,15 +308,30 @@ router.post('/friends/request', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    if (receiver.id === req.user.userId) {
+    if (receiver.id === req.user.id) {
       return res.status(400).json({ error: 'Cannot send friend request to yourself' });
+    }
+
+    // Enforce rule: normal users cannot send requests to content creators
+    const { data: sender, error: senderError } = await supabase
+      .from('users')
+      .select('id, role, username')
+      .eq('id', req.user.id)
+      .single();
+
+    if (senderError || !sender) {
+      return res.status(400).json({ error: 'Sender not found' });
+    }
+
+    if (sender.role === 'normal_user' && receiver.role === 'content_creator') {
+      return res.status(403).json({ error: 'You cannot send requests to content creators' });
     }
 
     // Check if friend request already exists
     const { data: existingRequest } = await supabase
       .from('friend_requests')
       .select('id, status')
-      .or(`and(sender_id.eq.${req.user.userId},receiver_id.eq.${receiver.id}),and(sender_id.eq.${receiver.id},receiver_id.eq.${req.user.userId})`)
+      .or(`and(sender_id.eq.${req.user.id},receiver_id.eq.${receiver.id}),and(sender_id.eq.${receiver.id},receiver_id.eq.${req.user.id})`)
       .maybeSingle();
 
     if (existingRequest) {
@@ -289,7 +346,7 @@ router.post('/friends/request', authenticateToken, async (req, res) => {
     const { data: friendRequest, error: requestError } = await supabase
       .from('friend_requests')
       .insert({
-        sender_id: req.user.userId,
+        sender_id: req.user.id,
         receiver_id: receiver.id
       })
       .select()
@@ -307,7 +364,7 @@ router.post('/friends/request', authenticateToken, async (req, res) => {
         type: 'friend_request',
         title: 'New Friend Request',
         message: `@${req.user.username} sent you a friend request`,
-        related_id: req.user.userId
+        related_id: req.user.id
       });
 
     res.json({
@@ -374,7 +431,7 @@ router.put('/friends/requests/:requestId', authenticateToken, async (req, res) =
       .from('friend_requests')
       .select('*')
       .eq('id', requestId)
-      .eq('receiver_id', req.user.userId)
+      .eq('receiver_id', req.user.id)
       .eq('status', 'pending')
       .single();
 
@@ -407,7 +464,7 @@ router.put('/friends/requests/:requestId', authenticateToken, async (req, res) =
         type: 'friend_request',
         title: 'Friend Request ' + (action === 'accept' ? 'Accepted' : 'Rejected'),
         message: `@${req.user.username} ${action === 'accept' ? 'accepted' : 'rejected'} your friend request`,
-        related_id: req.user.userId
+        related_id: req.user.id
       });
 
     res.json({
@@ -433,7 +490,7 @@ router.get('/friends', authenticateToken, async (req, res) => {
       .select(`
         friend:users!user_friends_friend_id_fkey(id, username, full_name, avatar_url, bio, role)
       `)
-      .eq('user_id', req.user.userId);
+      .eq('user_id', req.user.id);
 
     if (error) {
       return res.status(500).json({ error: 'Failed to fetch friends' });
@@ -458,7 +515,7 @@ router.delete('/friends/:friendId', authenticateToken, async (req, res) => {
     const { error } = await supabase
       .from('user_friends')
       .delete()
-      .or(`and(user_id.eq.${req.user.userId},friend_id.eq.${friendId}),and(user_id.eq.${friendId},friend_id.eq.${req.user.userId})`);
+      .or(`and(user_id.eq.${req.user.id},friend_id.eq.${friendId}),and(user_id.eq.${friendId},friend_id.eq.${req.user.id})`);
 
     if (error) {
       return res.status(500).json({ error: 'Failed to remove friend' });
@@ -479,7 +536,7 @@ router.post('/follow/:creatorId', authenticateToken, async (req, res) => {
   try {
     const { creatorId } = req.params;
 
-    if (creatorId === req.user.userId) {
+    if (creatorId === req.user.id) {
       return res.status(400).json({ error: 'Cannot follow yourself' });
     }
 
@@ -499,7 +556,7 @@ router.post('/follow/:creatorId', authenticateToken, async (req, res) => {
     const { data: existingFollow } = await supabase
       .from('creator_follows')
       .select('id')
-      .eq('follower_id', req.user.userId)
+      .eq('follower_id', req.user.id)
       .eq('creator_id', creatorId)
       .maybeSingle();
 
@@ -511,7 +568,7 @@ router.post('/follow/:creatorId', authenticateToken, async (req, res) => {
     const { data: follow, error: followError } = await supabase
       .from('creator_follows')
       .insert({
-        follower_id: req.user.userId,
+        follower_id: req.user.id,
         creator_id: creatorId
       })
       .select()
@@ -529,7 +586,7 @@ router.post('/follow/:creatorId', authenticateToken, async (req, res) => {
         type: 'follow',
         title: 'New Follower',
         message: `@${req.user.username} started following you`,
-        related_id: req.user.userId
+        related_id: req.user.id
       });
 
     res.json({
@@ -578,7 +635,7 @@ router.get('/following', authenticateToken, async (req, res) => {
       .select(`
         creator:users!creator_follows_creator_id_fkey(id, username, full_name, avatar_url, bio)
       `)
-      .eq('follower_id', req.user.userId);
+      .eq('follower_id', req.user.id);
 
     if (error) {
       return res.status(500).json({ error: 'Failed to fetch followed creators' });
@@ -603,7 +660,7 @@ router.get('/notifications', authenticateToken, async (req, res) => {
     const { data: notifications, error } = await supabase
       .from('notifications')
       .select('*')
-      .eq('user_id', req.user.userId)
+      .eq('user_id', req.user.id)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -667,7 +724,7 @@ router.put('/notifications/read-all', authenticateToken, async (req, res) => {
       .update({
         is_read: true
       })
-      .eq('user_id', req.user.userId)
+      .eq('user_id', req.user.id)
       .eq('is_read', false);
 
     if (error) {

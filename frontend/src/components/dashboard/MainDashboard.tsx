@@ -222,25 +222,41 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
     setSelectedSong(null);
   };
 
-  const likeSong = async (song: SongItem) => {
-    try {
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      
-      if (authError) throw authError;
-      if (!user) throw new Error('Not authenticated');
+  const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
 
-      // Add song to user_favorites table
-      const { error } = await supabase
-        .from('user_favorites')
-        .insert([{ 
-          song_id: song.path,
-          user_id: user.id 
-        }]);
-      
-      if (error) throw error;
-      console.log('Song added to favorites');
-    } catch (error) {
-      console.error('Error adding song to favorites:', error);
+  const toggleLike = async (song: SongItem) => {
+    const token = localStorage.getItem('token');
+    const songId = song.path;
+    if (!songId) return;
+
+    const isLiked = likedIds.has(songId);
+    // Optimistic toggle
+    setLikedIds(prev => {
+      const next = new Set(prev);
+      if (isLiked) next.delete(songId); else next.add(songId);
+      return next;
+    });
+
+    try {
+      if (isLiked) {
+        await fetch(`http://localhost:3001/api/favorites/${encodeURIComponent(songId)}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+      } else {
+        await fetch('http://localhost:3001/api/favorites', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ songId })
+        });
+      }
+    } catch (e) {
+      // Revert on error
+      setLikedIds(prev => {
+        const next = new Set(prev);
+        if (isLiked) next.add(songId); else next.delete(songId);
+        return next;
+      });
     }
   };
 
@@ -390,10 +406,10 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
                         </button>
                         <button
                           aria-label="Like"
-                          className="w-9 h-9 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition"
-                          onClick={() => likeSong(song)}
+                          className={`w-9 h-9 flex items-center justify-center rounded-md transition ${likedIds.has(song.path) ? 'bg-pink-600/20 text-pink-400 hover:bg-pink-600/30' : 'bg-white/10 hover:bg-white/15 text-white'}`}
+                          onClick={() => toggleLike(song)}
                         >
-                          <Heart className="w-5 h-5" />
+                          <Heart className={`w-5 h-5 ${likedIds.has(song.path) ? 'fill-pink-500 text-pink-400' : ''}`} />
                         </button>
                       </div>
                     </div>

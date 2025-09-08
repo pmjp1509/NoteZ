@@ -40,6 +40,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       password,
     });
     if (error) throw error;
+    // Persist access token for backend API calls
+    const accessToken = data.session?.access_token;
+    if (accessToken) {
+      localStorage.setItem('token', accessToken);
+    }
     return data;
   }
 
@@ -51,18 +56,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }
     });
     if (error) throw error;
+    // For OAuth, token will be set after redirect in onAuthStateChange
     return data;
   }
 
   async function logout() {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
+    localStorage.removeItem('token');
   }
 
   useEffect(() => {
     // Get initial session
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       setCurrentUser(session?.user ?? null);
+      if (session?.access_token) {
+        localStorage.setItem('token', session.access_token);
+      } else {
+        localStorage.removeItem('token');
+      }
       setLoading(false);
     }).catch(error => {
       console.error('AuthContext: Error getting session', error);
@@ -74,6 +86,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setCurrentUser(session?.user ?? null);
+      if (session?.access_token) {
+        localStorage.setItem('token', session.access_token);
+      } else {
+        localStorage.removeItem('token');
+      }
       setLoading(false);
     });
 

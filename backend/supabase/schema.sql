@@ -30,6 +30,7 @@ CREATE TABLE users (
   role user_role DEFAULT 'normal_user',
   bio TEXT,
   gender user_gender,
+  show_activity BOOLEAN DEFAULT true,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -90,6 +91,7 @@ CREATE TABLE playlists (
   description TEXT,
   creator_id UUID REFERENCES users(id) ON DELETE CASCADE,
   is_public BOOLEAN DEFAULT true,
+  is_favorites BOOLEAN DEFAULT false,
   cover_url TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -424,6 +426,77 @@ CREATE POLICY "Users can view their notifications" ON notifications
 
 CREATE POLICY "Users can mark notifications as read" ON notifications
   FOR UPDATE USING (auth.uid() = user_id);
+
+-- Favorites playlist system
+-- Ensure each user has at most one Favorites playlist
+CREATE UNIQUE INDEX playlists_one_favorites_per_user
+  ON playlists (creator_id)
+  WHERE (is_favorites = true);
+
+-- RPC to ensure favorites playlist exists and return its id
+CREATE OR REPLACE FUNCTION ensure_favorites_playlist(p_user_id uuid)
+RETURNS uuid
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  fav_id uuid;
+BEGIN
+  SELECT id INTO fav_id FROM playlists WHERE creator_id = p_user_id AND is_favorites = true LIMIT 1;
+  IF fav_id IS NULL THEN
+    INSERT INTO playlists (name, description, creator_id, is_public, is_favorites)
+    VALUES ('Favorites', NULL, p_user_id, false, true)
+    RETURNING id INTO fav_id;
+  END IF;
+  RETURN fav_id;
+END;
+$$;
+
+-- Function to prevent modification of Favorites playlists
+CREATE OR REPLACE FUNCTION prevent_modify_favorites()
+RETURNS trigger AS $$
+BEGIN
+  IF (tg_op = 'UPDATE') THEN
+    IF old.is_favorites AND (
+         COALESCE(new.name, '') <> COALESCE(old.name, '')
+      OR COALESCE(new.is_public, false) <> COALESCE(old.is_public, false)
+      OR new.creator_id <> old.creator_id
+      OR new.is_favorites <> old.is_favorites
+    ) THEN
+      RAISE EXCEPTION 'Favorites playlist is immutable';
+    END IF;
+    RETURN new;
+  ELSIF (tg_op = 'DELETE') THEN
+    IF old.is_favorites THEN
+      RAISE EXCEPTION 'Cannot delete Favorites playlist';
+    END IF;
+    RETURN old;
+  END IF;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Triggers to prevent modification of Favorites playlists
+CREATE TRIGGER trg_prevent_modify_favorites_update
+  BEFORE UPDATE ON playlists
+  FOR EACH ROW EXECUTE FUNCTION prevent_modify_favorites();
+
+CREATE TRIGGER trg_prevent_modify_favorites_delete
+  BEFORE DELETE ON playlists
+  FOR EACH ROW EXECUTE FUNCTION prevent_modify_favorites();
+
+-- RLS policies for Favorites playlists
+CREATE POLICY "Users can view their Favorites playlist" ON playlists
+  FOR SELECT USING (auth.uid() = creator_id AND is_favorites = true);
+
+CREATE POLICY "Users can manage Favorites playlist songs" ON playlist_songs
+  FOR ALL USING (
+    EXISTS (
+      SELECT 1 FROM playlists 
+      WHERE playlists.id = playlist_songs.playlist_id 
+      AND playlists.creator_id = auth.uid() 
+      AND playlists.is_favorites = true
+    )
+  );
 
 
 

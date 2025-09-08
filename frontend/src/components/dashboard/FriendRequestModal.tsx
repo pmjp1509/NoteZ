@@ -324,54 +324,62 @@ export function FriendRequestModal({ isOpen, onClose }: FriendRequestModalProps)
                 <div className="space-y-3">
                   <h3 className="text-lg font-medium text-white">Search Results</h3>
                   <div className="max-h-96 overflow-y-auto space-y-3">
-                    {searchResults.map((user) => (
-                      <div
-                        key={user.id}
-                        className="flex items-center space-x-3 p-3 bg-white/5 border border-white/10 rounded-lg"
-                      >
-                        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                          {user.avatarUrl ? (
-                            <img
-                              src={user.avatarUrl}
-                              alt="Avatar"
-                              className="w-full h-full rounded-full object-cover"
-                            />
-                          ) : (
-                            <span className="text-white font-medium text-lg">
-                              {user.username.charAt(0).toUpperCase()}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="text-white font-medium truncate">
-                            {user.fullName || user.username}
-                          </h4>
-                          <p className="text-gray-400 text-sm truncate">
-                            @{user.username}
-                          </p>
-                                                  <p className="text-gray-500 text-xs capitalize">
-                          {user.role ? user.role.replace('_', ' ') : 'user'}
-                        </p>
-                        </div>
-                        <Button
-                          onClick={() => sendFriendRequest(user.username)}
-                          disabled={isSending}
-                          className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    {searchResults.map((user) => {
+                      const isCreator = user.role === 'content_creator';
+                      return (
+                        <div
+                          key={user.id}
+                          className="flex items-center space-x-3 p-3 bg-white/5 border border-white/10 rounded-lg"
                         >
-                          {isSending ? (
-                            <>
-                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                              Sending...
-                            </>
-                          ) : (
-                            <>
-                              <UserPlus className="w-4 h-4 mr-2" />
-                              Add Friend
-                            </>
-                          )}
-                        </Button>
-                      </div>
-                    ))}
+                          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                            {user.avatarUrl ? (
+                              <img
+                                src={user.avatarUrl}
+                                alt="Avatar"
+                                className="w-full h-full rounded-full object-cover"
+                              />
+                            ) : (
+                              <span className="text-white font-medium text-lg">
+                                {user.username.charAt(0).toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="text-white font-medium truncate">
+                              {user.fullName || user.username}
+                            </h4>
+                            <p className="text-gray-400 text-sm truncate">
+                              @{user.username}
+                            </p>
+                            <p className="text-gray-500 text-xs capitalize">
+                              {user.role ? user.role.replace('_', ' ') : 'user'}
+                            </p>
+                          </div>
+                          <Button
+                            onClick={() => sendFriendRequest(user.username)}
+                            disabled={isSending || isCreator}
+                            title={isCreator ? 'Cannot send friend requests to content creators' : undefined}
+                            className={`px-4 py-2 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+                              isCreator
+                                ? 'bg-gray-600 text-gray-300'
+                                : 'bg-blue-500 hover:bg-blue-600 text-white'
+                            }`}
+                          >
+                            {isSending ? (
+                              <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Sending...
+                              </>
+                            ) : (
+                              <>
+                                <UserPlus className="w-4 h-4 mr-2" />
+                                Add Friend
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}

@@ -61,6 +61,9 @@ export const AddToPlaylistDialog = ({
       setLoading(true);
       setError(null);
 
+      // Optimistic UI: emit event so listeners can update immediately
+      window.dispatchEvent(new CustomEvent('songAddedToPlaylist', { detail: { playlistId, songId: songPath } }));
+
       // Get current highest position in playlist
       const { data: maxPosition } = await supabase
         .from("playlist_songs")
@@ -84,8 +87,11 @@ export const AddToPlaylistDialog = ({
       if (error) {
         if (error.code === '23505') {
           setError("This song is already in the playlist");
+          // Revert optimistic update if needed
+          window.dispatchEvent(new CustomEvent('songAddToPlaylistFailed', { detail: { playlistId, songId: songPath } }));
           return;
         }
+        window.dispatchEvent(new CustomEvent('songAddToPlaylistFailed', { detail: { playlistId, songId: songPath } }));
         throw error;
       }
 
@@ -93,6 +99,7 @@ export const AddToPlaylistDialog = ({
     } catch (err) {
       console.error("Failed to add song to playlist:", err);
       setError("Failed to add song to playlist. Please try again.");
+      window.dispatchEvent(new CustomEvent('songAddToPlaylistFailed', { detail: { playlistId, songId: songPath } }));
     } finally {
       setLoading(false);
     }
