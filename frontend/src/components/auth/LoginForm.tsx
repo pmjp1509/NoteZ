@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Mail, Lock, Loader2 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import AuthLayout from './AuthLayout';
-import { supabase } from '../../config/supabase';
+//import { supabase } from '../../config/supabase';
 
 export default function LoginForm() {
   const [email, setEmail] = useState('');
@@ -16,7 +16,6 @@ export default function LoginForm() {
   const { login, signInWithGoogle, currentUser } = useAuth();
   const navigate = useNavigate();
 
-  // If already authenticated, go to dashboard
   React.useEffect(() => {
     if (currentUser) navigate('/dashboard');
   }, [currentUser, navigate]);

@@ -3,9 +3,11 @@ import { supabase } from "@/config/supabase";
 export type SongItem = {
   movie: string;
   name: string;
-  path: string;
+  path: string; // usually the backend song id or storage path
   coverUrl: string;
   audioUrl: string;
+  lyrics?: string;
+  id?: string;
 };
 
 async function getSignedUrl(bucket: string, path: string): Promise<string> {

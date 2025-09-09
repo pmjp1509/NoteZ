@@ -1,4 +1,4 @@
-import React, { ReactNode } from 'react';
+import  { ReactNode } from 'react';
 import { Music } from 'lucide-react';
 
 interface AuthLayoutProps {
@@ -6,16 +6,6 @@ interface AuthLayoutProps {
   title: string;
   subtitle: string;
 }
-async function signInWithGoogle() {
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      redirectTo: 'http://localhost:5173/dashboard' // ensure this exact URL is in Supabase Redirect URLs
-    }
-  });
-  if (error) throw error;
-}
-
 export default function AuthLayout({ children, title, subtitle }: AuthLayoutProps) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">

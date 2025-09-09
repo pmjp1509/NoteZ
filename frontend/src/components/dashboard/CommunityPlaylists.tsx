@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { ThumbsUp, ThumbsDown, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { fetchRandomSongs, type SongItem } from "@/lib/songs";
+import type { SongItem } from "@/lib/songs";
 
 export function CommunityPlaylists({ onPlay }: { onPlay?: (song: SongItem) => void }) {
   const [songs, setSongs] = useState<SongItem[]>([]);
@@ -12,9 +12,26 @@ export function CommunityPlaylists({ onPlay }: { onPlay?: (song: SongItem) => vo
   useEffect(() => {
     let mounted = true;
     setLoading(true);
-    fetchRandomSongs(6)
-      .then((res) => { if (mounted) setSongs(res); })
-      .finally(() => mounted && setLoading(false));
+    (async () => {
+      try {
+        const response = await fetch(`http://localhost:3001/api/songs?limit=6`);
+        const data = await response.json();
+        const mapped: SongItem[] = (data.songs || []).map((s: any) => ({
+          movie: s.movie || "",
+          name: s.title || s.name || "Unknown",
+          path: s.id ? String(s.id) : s.audioUrl || "",
+          id: s.id ? String(s.id) : undefined,
+          coverUrl: s.coverUrl || s.cover_url || "/assets/album-placeholder.jpg",
+          audioUrl: s.audioUrl || s.audio_url || "",
+        }));
+        if (mounted) setSongs(mapped);
+      } catch (e) {
+        if (!mounted) return;
+        setSongs([]);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
     return () => { mounted = false; };
   }, []);
 

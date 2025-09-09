@@ -64,7 +64,7 @@ export function NotificationsPanel({ isOpen, onClose }: NotificationsPanelProps)
   const fetchFriendRequests = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:3001/api/users/friends/requests', {
+      const response = await fetch('http://localhost:3001/api/friends/requests/pending', {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -83,7 +83,7 @@ export function NotificationsPanel({ isOpen, onClose }: NotificationsPanelProps)
     setIsLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:3001/api/users/friends/requests/${requestId}`, {
+      const response = await fetch(`http://localhost:3001/api/friends/requests/${requestId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

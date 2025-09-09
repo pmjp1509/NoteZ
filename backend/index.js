@@ -37,6 +37,7 @@ app.use('/api/songs', require('./routes/songs'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/playlists', require('./routes/playlists'));
 app.use('/api/favorites', require('./routes/favorites'));
+app.use('/api/friends', require('./routes/friends'));
 app.use('/api/analytics', require('./routes/analytics'));
 app.use('/api/categories', require('./routes/categories'));
 app.use('/api/ai', require('./routes/ai'));

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Play } from "lucide-react";
+import { Play, Trash2, Heart } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { SongItem } from "@/lib/songs";
 
@@ -17,7 +17,15 @@ function loadRecentlyPlayed(): SongItem[] {
   }
 }
 
-export function RecentlyPlayed({ onPlay }: { onPlay: (song: SongItem) => void }) {
+export function RecentlyPlayed({ 
+  onPlay, 
+  onToggleFavorite,
+  likedIds 
+}: { 
+  onPlay: (song: SongItem) => void;
+  onToggleFavorite?: (song: SongItem) => void;
+  likedIds?: Set<string>;
+}) {
   const [items, setItems] = useState<SongItem[]>([]);
 
   useEffect(() => {
@@ -30,6 +38,20 @@ export function RecentlyPlayed({ onPlay }: { onPlay: (song: SongItem) => void })
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
+
+  const removeFromRecentlyPlayed = (songToRemove: SongItem) => {
+    try {
+      const current = loadRecentlyPlayed();
+      const filtered = current.filter(
+        (s) => s.path !== songToRemove.path && s.audioUrl !== songToRemove.audioUrl && s.name !== songToRemove.name
+      );
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+      // Trigger listeners to update UI
+      window.dispatchEvent(new StorageEvent("storage", { key: STORAGE_KEY }));
+    } catch {
+      // ignore
+    }
+  };
 
   if (items.length === 0) {
     return (
@@ -57,22 +79,60 @@ export function RecentlyPlayed({ onPlay }: { onPlay: (song: SongItem) => void })
       </CardHeader>
       <CardContent>
         <div className="grid grid-cols-2 gap-3">
-          {items.slice(0, 4).map((song) => (
-            <button
-              key={song.path || song.name}
-              onClick={() => onPlay(song)}
-              className="group relative flex items-center gap-3 p-3 rounded-lg bg-secondary/30 hover:bg-secondary/40 transition"
-            >
-              <img src={song.coverUrl} alt="cover" className="w-12 h-12 rounded object-cover" />
-              <div className="min-w-0 text-left">
-                <div className="text-white truncate">{song.name}</div>
-                <div className="text-xs text-muted-foreground truncate">{song.movie}</div>
+          {items.slice(0, 4).map((song) => {
+            const isLiked = likedIds && song.id ? likedIds.has(song.id) : false;
+            return (
+              <div
+                key={song.path || song.name}
+                className="group relative flex items-center gap-3 p-3 rounded-lg bg-secondary/30 hover:bg-secondary/40 transition"
+              >
+                <img src={song.coverUrl} alt="cover" className="w-12 h-12 rounded object-cover" />
+                <div className="min-w-0 text-left flex-1" onClick={() => onPlay(song)} style={{ cursor: 'pointer' }}>
+                  <div className="text-white truncate">{song.name}</div>
+                  <div className="text-xs text-muted-foreground truncate">{song.movie}</div>
+                </div>
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onPlay(song);
+                    }}
+                    className="w-7 h-7 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center hover:scale-105 transition"
+                    aria-label="Play song"
+                  >
+                    <Play className="w-3.5 h-3.5 text-white" />
+                  </button>
+                  {onToggleFavorite && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleFavorite(song);
+                      }}
+                      className={`w-7 h-7 rounded-full flex items-center justify-center transition ${
+                        isLiked 
+                          ? 'bg-pink-500/20 text-pink-400 hover:bg-pink-500/30' 
+                          : 'bg-white/10 text-gray-300 hover:bg-white/20 hover:text-white'
+                      }`}
+                      aria-label={isLiked ? 'Remove from favorites' : 'Add to favorites'}
+                      disabled={!song.id}
+                    >
+                      <Heart className={`w-3.5 h-3.5 ${isLiked ? 'fill-pink-400' : ''}`} />
+                    </button>
+                  )}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeFromRecentlyPlayed(song);
+                    }}
+                    className="w-7 h-7 rounded-full bg-red-500/20 text-red-400 flex items-center justify-center hover:bg-red-500/30 hover:text-red-300 transition"
+                    aria-label="Remove from recently played"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
-              <div className="ml-auto w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center opacity-0 group-hover:opacity-100 transition">
-                <Play className="w-4 h-4" />
-              </div>
-            </button>
-          ))}
+            );
+          })}
         </div>
       </CardContent>
     </Card>

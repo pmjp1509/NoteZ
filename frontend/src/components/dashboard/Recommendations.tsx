@@ -2,37 +2,30 @@ import { useEffect, useState } from "react";
 import { Play } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { SongItem } from "@/lib/songs";
-import { fetchRandomSongs } from "@/lib/songs";
 
 export function Recommendations({ onPlay }: { onPlay: (song: SongItem) => void }) {
   const [items, setItems] = useState<SongItem[]>([]);
 
   useEffect(() => {
     let mounted = true;
-    fetchRandomSongs(2)
-      .then((songs) => {
-        if (mounted && songs?.length) setItems(songs);
-      })
-      .catch(() => {
+    (async () => {
+      try {
+        const response = await fetch(`http://localhost:3001/api/songs?limit=6`);
+        const data = await response.json();
+        const mapped: SongItem[] = (data.songs || []).map((s: any) => ({
+          movie: s.movie || "",
+          name: s.title || s.name || "Unknown",
+          path: s.id ? String(s.id) : s.audioUrl || "",
+          id: s.id ? String(s.id) : undefined,
+          coverUrl: s.coverUrl || s.cover_url || "/assets/album-placeholder.jpg",
+          audioUrl: s.audioUrl || s.audio_url || "",
+        }));
+        if (mounted) setItems(mapped.slice(0, 2));
+      } catch (e) {
         if (!mounted) return;
-        // Fallback dummy songs (no audio URL yet)
-        setItems([
-          {
-            movie: "Recommended",
-            name: "Calm Breeze",
-            path: "dummy-1",
-            coverUrl: "/assets/album-placeholder.jpg",
-            audioUrl: "",
-          },
-          {
-            movie: "Recommended",
-            name: "Night Vibes",
-            path: "dummy-2",
-            coverUrl: "/assets/album-placeholder.jpg",
-            audioUrl: "",
-          },
-        ]);
-      });
+        setItems([]);
+      }
+    })();
     return () => { mounted = false; };
   }, []);
 
@@ -47,7 +40,7 @@ export function Recommendations({ onPlay }: { onPlay: (song: SongItem) => void }
       <CardContent>
         <div className="space-y-3">
           {items.map((song) => (
-            <div key={song.path || song.name} className="flex items-center gap-3 p-3 bg-secondary/30 rounded-lg">
+            <div key={song.id || song.path || song.name} className="flex items-center gap-3 p-3 bg-secondary/30 rounded-lg">
               <img src={song.coverUrl} alt="cover" className="w-10 h-10 rounded object-cover" />
               <div className="min-w-0 flex-1">
                 <div className="text-white truncate">{song.name}</div>

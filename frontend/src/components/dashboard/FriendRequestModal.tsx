@@ -48,7 +48,7 @@ export function FriendRequestModal({ isOpen, onClose }: FriendRequestModalProps)
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:3001/api/users/friends', {
+      const response = await fetch('http://localhost:3001/api/friends', {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -107,13 +107,14 @@ export function FriendRequestModal({ isOpen, onClose }: FriendRequestModalProps)
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:3001/api/users/friends/request', {
+      // Find the selected user in current search results to get id
+      const selected = searchResults.find(u => u.username === username);
+      if (!selected) throw new Error('User not found in results');
+      const response = await fetch(`http://localhost:3001/api/friends/${encodeURIComponent(selected.id)}/request`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ receiverUsername: username })
+        }
       });
 
       const data = await response.json();
@@ -137,7 +138,7 @@ export function FriendRequestModal({ isOpen, onClose }: FriendRequestModalProps)
   const removeFriend = async (friendId: string) => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:3001/api/users/friends/${friendId}`, {
+      const response = await fetch(`http://localhost:3001/api/friends/${friendId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`

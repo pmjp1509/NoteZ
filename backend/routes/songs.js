@@ -21,17 +21,31 @@ const upload = multer({
   }
 });
 
-// Middleware to verify JWT token
-const authenticateToken = (req, res, next) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  
+// Supabase auth: verify access token and attach user with role
+const authenticateToken = async (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+
   if (!token) {
     return res.status(401).json({ error: 'No token provided' });
   }
 
+  if (token.split('.').length !== 3) {
+    return res.status(400).json({ error: 'Malformed token' });
+  }
+
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-    req.user = decoded;
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error) throw error;
+    if (!user) return res.status(403).json({ error: 'Invalid token' });
+
+    // Fetch role from users table
+    const { data: dbUser } = await supabase
+      .from('users')
+      .select('id, role')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    req.user = { id: user.id, email: user.email, role: dbUser?.role };
     next();
   } catch (error) {
     return res.status(403).json({ error: 'Invalid token' });
@@ -44,6 +58,26 @@ const requireCreator = (req, res, next) => {
     return res.status(403).json({ error: 'Content creator access required' });
   }
   next();
+};
+
+// Middleware to verify Supabase access token (for favorites endpoints)
+const authenticateSupabaseToken = async (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) {
+    return res.status(401).json({ error: 'No token provided' });
+  }
+  if (token.split('.').length !== 3) {
+    return res.status(400).json({ error: 'Malformed token' });
+  }
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error) throw error;
+    if (!user) return res.status(403).json({ error: 'Invalid token' });
+    req.supaUser = { id: user.id, email: user.email };
+    next();
+  } catch (error) {
+    return res.status(403).json({ error: 'Invalid token' });
+  }
 };
 
 // Upload new song (Content Creator only)
@@ -82,7 +116,7 @@ router.post('/upload', authenticateToken, requireCreator, upload.single('audio')
         artist,
         movie: movie || null,
         category_id: categoryId,
-        creator_id: req.user.userId,
+        creator_id: req.user.id,
         audio_url: audioUrl.publicUrl,
         lyrics: lyrics || null,
         is_public: isPublic !== 'false',
@@ -272,7 +306,7 @@ router.put('/:id', authenticateToken, requireCreator, async (req, res) => {
       return res.status(404).json({ error: 'Song not found' });
     }
 
-    if (existingSong.creator_id !== req.user.userId) {
+    if (existingSong.creator_id !== req.user.id) {
       return res.status(403).json({ error: 'You can only update your own songs' });
     }
 
@@ -335,7 +369,7 @@ router.delete('/:id', authenticateToken, requireCreator, async (req, res) => {
       return res.status(404).json({ error: 'Song not found' });
     }
 
-    if (song.creator_id !== req.user.userId) {
+    if (song.creator_id !== req.user.id) {
       return res.status(403).json({ error: 'You can only delete your own songs' });
     }
 
@@ -416,3 +450,75 @@ router.get('/creator/:creatorId', async (req, res) => {
 });
 
 module.exports = router;
+// Favorites toggle endpoints under songs
+router.post('/:id/favorite', authenticateSupabaseToken, async (req, res) => {
+  try {
+    const songId = req.params.id;
+
+    // Validate song exists and public
+    const { data: song, error: songError } = await supabase
+      .from('songs')
+      .select('id, title, is_public')
+      .eq('id', songId)
+      .eq('is_public', true)
+      .single();
+    if (songError || !song) {
+      return res.status(404).json({ error: 'Song not found' });
+    }
+
+    // Ensure favorites playlist exists
+    const { data: favIdData, error: favIdError } = await supabase
+      .rpc('ensure_favorites_playlist', { p_user_id: req.supaUser.id });
+    if (favIdError) return res.status(500).json({ error: 'Failed to get Favorites playlist' });
+
+    // Determine next position
+    const { data: last, error: posError } = await supabase
+      .from('playlist_songs')
+      .select('position')
+      .eq('playlist_id', favIdData)
+      .order('position', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (posError) return res.status(500).json({ error: 'Failed to update favorites' });
+    const nextPos = last?.position ? last.position + 1 : 1;
+
+    // Insert
+    const { error: insError } = await supabase
+      .from('playlist_songs')
+      .insert({ playlist_id: favIdData, song_id: songId, position: nextPos });
+    if (insError) {
+      if (insError.code === '23505') {
+        return res.status(400).json({ error: 'Song already in favorites' });
+      }
+      return res.status(500).json({ error: 'Failed to add to favorites' });
+    }
+
+    res.json({ message: 'Song added to favorites' });
+  } catch (error) {
+    console.error('POST /songs/:id/favorite error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.delete('/:id/favorite', authenticateSupabaseToken, async (req, res) => {
+  try {
+    const songId = req.params.id;
+
+    const { data: favIdData, error: favIdError } = await supabase
+      .rpc('ensure_favorites_playlist', { p_user_id: req.supaUser.id });
+    if (favIdError) return res.status(500).json({ error: 'Failed to get Favorites playlist' });
+
+    const { error } = await supabase
+      .from('playlist_songs')
+      .delete()
+      .eq('playlist_id', favIdData)
+      .eq('song_id', songId);
+    if (error) {
+      return res.status(500).json({ error: 'Failed to remove from favorites' });
+    }
+    res.json({ message: 'Song removed from favorites' });
+  } catch (error) {
+    console.error('DELETE /songs/:id/favorite error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});

@@ -2,7 +2,7 @@
 import { Button } from "../ui/button";
 import { Card } from "../ui/card";
 import { useState, useEffect } from "react";
-import { supabase } from "@/config/supabase";
+// Uses backend APIs to ensure only the current user's playlists are shown
 
 interface Playlist {
   id: string;
@@ -33,21 +33,19 @@ export const AddToPlaylistDialog = ({
   const loadPlaylists = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from("playlists")
-        .select("id, name, description, cover_url")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-
-      setPlaylists(
-        data.map((p) => ({
-          id: p.id,
-          name: p.name,
-          description: p.description,
-          coverUrl: p.cover_url,
-        }))
-      );
+      const token = localStorage.getItem('token');
+      const res = await fetch('http://localhost:3001/api/playlists/me', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error('Failed to load playlists');
+      const json = await res.json();
+      const data = json.playlists || [];
+      setPlaylists(data.map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        coverUrl: p.coverUrl || null,
+      })));
     } catch (err) {
       console.error("Failed to load playlists:", err);
       setError("Failed to load playlists");
@@ -64,35 +62,25 @@ export const AddToPlaylistDialog = ({
       // Optimistic UI: emit event so listeners can update immediately
       window.dispatchEvent(new CustomEvent('songAddedToPlaylist', { detail: { playlistId, songId: songPath } }));
 
-      // Get current highest position in playlist
-      const { data: maxPosition } = await supabase
-        .from("playlist_songs")
-        .select("position")
-        .eq("playlist_id", playlistId)
-        .order("position", { ascending: false })
-        .limit(1)
-        .single();
-
-      const nextPosition = (maxPosition?.position || 0) + 1;
-
-      // Add song to playlist
-      const { error } = await supabase
-        .from("playlist_songs")
-        .insert({
-          playlist_id: playlistId,
-          song_id: songPath,
-          position: nextPosition
-        });
-
-      if (error) {
-        if (error.code === '23505') {
+      // Add via backend to enforce ownership and RLS
+      const token = localStorage.getItem('token');
+      const res = await fetch(`http://localhost:3001/api/playlists/${encodeURIComponent(playlistId)}/songs`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ songId: songPath })
+      });
+      if (!res.ok) {
+        if (res.status === 400) {
           setError("This song is already in the playlist");
-          // Revert optimistic update if needed
           window.dispatchEvent(new CustomEvent('songAddToPlaylistFailed', { detail: { playlistId, songId: songPath } }));
           return;
         }
         window.dispatchEvent(new CustomEvent('songAddToPlaylistFailed', { detail: { playlistId, songId: songPath } }));
-        throw error;
+        const e = await res.json().catch(()=>({}));
+        throw new Error(e.error || 'Failed to add song');
       }
 
       onClose();

@@ -52,7 +52,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: window.location.origin
+        redirectTo: `${window.location.origin}/dashboard`,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'consent'
+        }
       }
     });
     if (error) throw error;
@@ -88,6 +92,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setCurrentUser(session?.user ?? null);
       if (session?.access_token) {
         localStorage.setItem('token', session.access_token);
+        // Provision user row in our DB immediately after OAuth redirect
+        fetch('http://localhost:3001/api/users/me', {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        }).catch(() => {});
       } else {
         localStorage.removeItem('token');
       }

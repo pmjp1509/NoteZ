@@ -11,5 +11,6 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
 
   if (loading) return null;
 
-  return currentUser ? <>{children}</> : <Navigate to="/login" />;
+  if (!currentUser) return <Navigate to="/login" replace />;
+  return <>{children}</>;
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
-import { Pause, Play, RotateCcw, ListMusic, Volume2, VolumeX, SkipBack, SkipForward } from 'lucide-react';
+import { Pause, Play, RotateCcw, ListMusic, Volume2, VolumeX, SkipBack, SkipForward, Heart } from 'lucide-react';
 import type { SongItem } from '@/lib/songs';
 
 export function BottomPlayer({
@@ -14,6 +14,9 @@ export function BottomPlayer({
   onTogglePlay,
   onSeekPct,
   onVolumePct,
+  onToggleFavorite,
+  isFavorite,
+  onReplay,
 }: {
   song?: SongItem;
   isPlaying: boolean;
@@ -23,9 +26,13 @@ export function BottomPlayer({
   onTogglePlay: () => void;
   onSeekPct: (pct: number) => void;
   onVolumePct: (pct: number) => void;
+  onToggleFavorite?: () => void;
+  isFavorite?: boolean;
+  onReplay?: () => void;
 }) {
   const [showLyrics, setShowLyrics] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [isRepeating, setIsRepeating] = useState(false);
 
   const toggleMute = () => {
     if (isMuted) {
@@ -34,6 +41,14 @@ export function BottomPlayer({
     } else {
       onVolumePct(0);
       setIsMuted(true);
+    }
+  };
+
+  const handleReplayToggle = () => {
+    setIsRepeating(!isRepeating);
+    // If there's an onReplay callback, call it with the new repeat state
+    if (onReplay) {
+      onReplay();
     }
   };
 
@@ -106,11 +121,24 @@ export function BottomPlayer({
 
           {/* Control Buttons */}
           <div className="flex items-center gap-2">
+            {/* Favorite toggle */}
+            <Button 
+              size="icon" 
+              variant="ghost" 
+              className={`w-10 h-10 rounded-full transition-all ${isFavorite ? 'text-pink-400 bg-pink-600/10 hover:bg-pink-600/20' : 'text-gray-300 hover:text-white hover:bg-white/10'}`}
+              disabled={!song?.id}
+              onClick={() => onToggleFavorite?.()}
+              aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+            >
+              <Heart className={`w-5 h-5 ${ isFavorite ? 'fill-pink-500' : '' }`} />
+            </Button>
             <Button 
               size="icon" 
               variant="ghost" 
               className="w-10 h-10 text-gray-300 hover:text-white hover:bg-white/10 rounded-full transition-all"
-              onClick={() => setShowLyrics(!showLyrics)}
+              onClick={() => song?.lyrics ? setShowLyrics(!showLyrics) : null}
+              disabled={!song?.lyrics}
+              aria-label={song?.lyrics ? (showLyrics ? 'Hide lyrics' : 'Show lyrics') : 'No lyrics available'}
             >
               <ListMusic className="w-5 h-5" />
             </Button>
@@ -118,9 +146,11 @@ export function BottomPlayer({
             <Button 
               size="icon" 
               variant="ghost" 
-              className="w-10 h-10 text-gray-300 hover:text-white hover:bg-white/10 rounded-full transition-all"
+              className={`w-10 h-10 rounded-full transition-all ${isRepeating ? 'text-purple-400 bg-purple-600/10 hover:bg-purple-600/20' : 'text-gray-300 hover:text-white hover:bg-white/10'}`}
+              onClick={handleReplayToggle}
+              aria-label={isRepeating ? 'Turn off repeat' : 'Turn on repeat'}
             >
-              <RotateCcw className="w-5 h-5" />
+              <RotateCcw className={`w-5 h-5 ${isRepeating ? 'text-purple-400' : ''}`} />
             </Button>
 
             <Button 

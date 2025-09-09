@@ -6,9 +6,9 @@ import { RecentlyPlayed, pushRecentlyPlayed } from "@/components/dashboard/Recen
 import { LeftSidebar } from "@/components/dashboard/LeftSidebar";
 import { RightSidebar } from "@/components/dashboard/RightSidebar";
 import { BottomPlayer } from "@/components/dashboard/BottomPlayer";
-import { Search, X, Plus, ListPlus, Heart, Play, ArrowLeft } from "lucide-react";
+import { Search, X, Plus, ListPlus, Heart, Play, ArrowLeft, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { fetchRandomSongs, type SongItem } from "@/lib/songs";
+import { type SongItem } from "@/lib/songs";
 import { AddToPlaylistDialog } from "./AddToPlaylistDialog";
 import { supabase } from "@/config/supabase";
 
@@ -54,17 +54,33 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
   const [playlistSongs, setPlaylistSongs] = useState<PlaylistSong[]>([]);
   const [isLoadingPlaylist, setIsLoadingPlaylist] = useState(false);
+  const [isRepeating, setIsRepeating] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     let mounted = true;
-    console.log('[MainDashboard] fetching initial random song');
-    fetchRandomSongs(1).then((songs) => {
-      if (mounted) setCurrentSong(songs[0]);
-      console.log('[MainDashboard] initial song:', songs[0]);
-    }).catch((e) => {
-      console.error('[MainDashboard] fetchRandomSongs error', e);
-    });
+    (async () => {
+      try {
+        console.log('[MainDashboard] fetching initial songs from backend');
+        const response = await fetch(`http://localhost:3001/api/songs?limit=20`);
+        const data = await response.json();
+        const mapped: SongItem[] = (data.songs || []).map((s: any) => ({
+          movie: s.movie || "",
+          name: s.title || s.name || "Unknown",
+          path: s.id ? String(s.id) : s.audioUrl || "",
+          id: s.id ? String(s.id) : undefined,
+          coverUrl: s.coverUrl || s.cover_url || "/assets/album-placeholder.jpg",
+          audioUrl: s.audioUrl || s.audio_url || "",
+          lyrics: s.lyrics || undefined,
+        }));
+        if (mounted && mapped.length) {
+          setCurrentSong(mapped[0]);
+          console.log('[MainDashboard] initial song:', mapped[0]);
+        }
+      } catch (e) {
+        console.error('[MainDashboard] initial songs fetch error', e);
+      }
+    })();
     return () => { mounted = false; };
   }, []);
 
@@ -85,6 +101,12 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
       window.removeEventListener('playlistSelected', handlePlaylistSelected as EventListener);
     };
   }, []);
+  
+  // Pre-fetch favorites data when component mounts
+  useEffect(() => {
+    // This ensures favorites data is already loaded when user clicks on Favorites
+    fetchFavorites();
+  }, []);
 
   const fetchFavorites = async () => {
     setIsLoadingPlaylist(true);
@@ -98,7 +120,21 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
 
       if (response.ok) {
         const data = await response.json();
-        setPlaylistSongs(data.favorites || []);
+        const favorites = data.favorites || [];
+        console.log('Raw favorites data from API:', favorites);
+        
+        if (favorites.length > 0) {
+          console.log('Sample favorite song object:', favorites[0]);
+          console.log('Sample favorite song ID:', favorites[0].id);
+          console.log('Sample favorite song songId:', favorites[0].songId);
+        }
+        
+        setPlaylistSongs(favorites);
+        
+        // Update likedIds state with the fetched favorites
+        const favoriteIds = new Set(favorites.map((song: any) => song.id));
+        console.log('Updated favorite song IDs from fetchFavorites:', [...favoriteIds]);
+        setLikedIds(favoriteIds as Set<string>);
       }
     } catch (error) {
       console.error('Failed to fetch favorites:', error);
@@ -154,7 +190,15 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
         const pct = Math.min(100, (audioRef.current.currentTime / (audioRef.current.duration || 1)) * 100);
         setProgressPct(pct);
       });
-      audioRef.current.addEventListener('ended', () => setIsPlaying(false));
+      audioRef.current.addEventListener('ended', () => {
+        if (isRepeating && currentSong) {
+          // Restart the song from the beginning
+          audioRef.current!.currentTime = 0;
+          audioRef.current!.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+        } else {
+          setIsPlaying(false);
+        }
+      });
     }
     return () => {
       audioRef.current?.pause();
@@ -224,12 +268,77 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
 
   const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
 
+  // Load liked songs when component mounts
+  useEffect(() => {
+    const fetchLikedSongIds = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        
+        const response = await fetch('http://localhost:3001/api/favorites', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          // Use id property which matches the database ID
+          const favoriteIds = new Set(
+            (data.favorites || []).map((song: any) => song.id)
+          );
+          console.log('Loaded favorite song IDs:', [...favoriteIds]);
+          setLikedIds(favoriteIds as Set<string>);
+        }
+      } catch (error) {
+        console.error('Failed to fetch liked song IDs:', error);
+      }
+    };
+
+    fetchLikedSongIds();
+  }, []);
+
+  // Listen for favorites change events
+  useEffect(() => {
+    const handleFavoritesChanged = (event: CustomEvent) => {
+      const { action, songId } = event.detail;
+      
+      setLikedIds(prev => {
+        const next = new Set(prev);
+        if (action === 'added') {
+          next.add(songId);
+        } else if (action === 'removed') {
+          next.delete(songId);
+        }
+        return next;
+      });
+    };
+
+    window.addEventListener('favoritesChanged', handleFavoritesChanged as EventListener);
+    return () => {
+      window.removeEventListener('favoritesChanged', handleFavoritesChanged as EventListener);
+    };
+  }, []);
+
   const toggleLike = async (song: SongItem) => {
     const token = localStorage.getItem('token');
-    const songId = song.path;
-    if (!songId) return;
+    if (!token) {
+      console.error('No auth token found');
+      return;
+    }
+    
+    // Use the song.id which should match the database id for songs
+    const songId = song.id;
+    if (!songId) {
+      console.error('No song ID found for:', song);
+      return;
+    }
 
+    console.log('Toggling like for song:', songId);
+    console.log('Full song object:', song);
+    console.log('Current likedIds:', [...likedIds]);
     const isLiked = likedIds.has(songId);
+    
     // Optimistic toggle
     setLikedIds(prev => {
       const next = new Set(prev);
@@ -239,18 +348,31 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
 
     try {
       if (isLiked) {
-        await fetch(`http://localhost:3001/api/favorites/${encodeURIComponent(songId)}`, {
+        const res = await fetch(`http://localhost:3001/api/favorites/${encodeURIComponent(songId)}`, {
           method: 'DELETE',
           headers: { 'Authorization': `Bearer ${token}` }
         });
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+          throw new Error(errorData.error || 'Failed to remove from favorites');
+        }
+        console.log('Successfully removed from favorites');
+        window.dispatchEvent(new CustomEvent('favoritesChanged', { detail: { action: 'removed', songId } }));
       } else {
-        await fetch('http://localhost:3001/api/favorites', {
+        const res = await fetch(`http://localhost:3001/api/favorites`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ songId })
         });
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({ error: 'Unknown error' }));
+          throw new Error(errorData.error || 'Failed to add to favorites');
+        }
+        console.log('Successfully added to favorites');
+        window.dispatchEvent(new CustomEvent('favoritesChanged', { detail: { action: 'added', songId } }));
       }
     } catch (e) {
+      console.error('Error toggling favorite:', e);
       // Revert on error
       setLikedIds(prev => {
         const next = new Set(prev);
@@ -258,6 +380,11 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
         return next;
       });
     }
+  };
+
+  const isCurrentFavorite = currentSong?.id ? likedIds.has(currentSong.id) : false;
+  const toggleCurrentFavorite = () => {
+    if (currentSong) toggleLike(currentSong);
   };
 
   const handleSearch = async () => {
@@ -276,6 +403,7 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
         movie: s.movie || "",
         name: s.title || s.name || "Unknown",
         path: s.id ? String(s.id) : s.audioUrl || "",
+        id: s.id ? String(s.id) : undefined,
         coverUrl: s.coverUrl || "/assets/album-placeholder.jpg",
         audioUrl: s.audioUrl || "",
       }));
@@ -308,6 +436,46 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
     if (e.key === 'Enter') {
       handleSearch();
     }
+  };
+
+  // Remove song from playlist
+  const removeSongFromPlaylist = async (songId: string) => {
+    if (!selectedPlaylist) return;
+    
+    const token = localStorage.getItem('token');
+    try {
+      const response = await fetch(`http://localhost:3001/api/playlists/${selectedPlaylist.id}/songs/${songId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.ok) {
+        // Remove song from local state
+        setPlaylistSongs(prev => prev.filter(song => song.id !== songId));
+        
+        // If this is favorites playlist, also remove from likedIds and dispatch event
+        if (selectedPlaylist.name === 'Favorites') {
+          setLikedIds(prev => {
+            const next = new Set(prev);
+            next.delete(songId);
+            return next;
+          });
+          window.dispatchEvent(new CustomEvent('favoritesChanged', { 
+            detail: { action: 'removed', songId } 
+          }));
+        }
+      } else {
+        console.error('Failed to remove song from playlist');
+      }
+    } catch (error) {
+      console.error('Error removing song from playlist:', error);
+    }
+  };
+
+  const handleReplay = () => {
+    setIsRepeating(!isRepeating);
   };
 
   return (
@@ -406,10 +574,11 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
                         </button>
                         <button
                           aria-label="Like"
-                          className={`w-9 h-9 flex items-center justify-center rounded-md transition ${likedIds.has(song.path) ? 'bg-pink-600/20 text-pink-400 hover:bg-pink-600/30' : 'bg-white/10 hover:bg-white/15 text-white'}`}
+                          className={`w-9 h-9 flex items-center justify-center rounded-md transition ${song.id && likedIds.has(song.id) ? 'bg-pink-600/20 text-pink-400 hover:bg-pink-600/30' : 'bg-white/10 hover:bg-white/15 text-white'}`}
                           onClick={() => toggleLike(song)}
+                          disabled={!song.id}
                         >
-                          <Heart className={`w-5 h-5 ${likedIds.has(song.path) ? 'fill-pink-500 text-pink-400' : ''}`} />
+                          <Heart className={`w-5 h-5 ${song.id && likedIds.has(song.id) ? 'fill-pink-500 text-pink-400' : ''}`} />
                         </button>
                       </div>
                     </div>
@@ -464,6 +633,7 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
                     key={song.id}
                     className="flex items-center space-x-3 p-3 bg-white/5 rounded-lg border border-white/10 hover:bg-white/10 transition-colors group cursor-pointer"
                     onClick={() => playSong({
+                      id: song.id,
                       path: song.id,
                       name: song.title,
                       movie: song.movie || '',
@@ -498,6 +668,7 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
                         aria-label="Add to queue"
                         className="w-9 h-9 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition"
                         onClick={() => addToQueue({
+                          id: song.id,
                           path: song.id,
                           name: song.title,
                           movie: song.movie || '',
@@ -511,6 +682,7 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
                         aria-label="Add to playlist"
                         className="w-9 h-9 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition"
                         onClick={() => addToPlaylist({
+                          id: song.id,
                           path: song.id,
                           name: song.title,
                           movie: song.movie || '',
@@ -522,16 +694,26 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
                       </button>
                       <button
                         aria-label="Like"
-                        className="w-9 h-9 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition"
-                        onClick={() => likeSong({
+                        className={`w-9 h-9 flex items-center justify-center rounded-md transition ${song.id && likedIds.has(song.id) ? 'bg-pink-600/20 text-pink-400 hover:bg-pink-600/30' : 'bg-white/10 hover:bg-white/15 text-white'}`}
+                        onClick={() => toggleLike({
+                          id: song.id,
                           path: song.id,
                           name: song.title,
                           movie: song.movie || '',
                           audioUrl: song.audioUrl,
                           coverUrl: song.coverUrl || ''
                         })}
+                        disabled={!song.id}
                       >
-                        <Heart className="w-5 h-5" />
+                        <Heart className={`w-5 h-5 ${song.id && likedIds.has(song.id) ? 'fill-pink-500 text-pink-400' : ''}`} />
+                      </button>
+                      <button
+                        aria-label="Remove from playlist"
+                        className="w-9 h-9 flex items-center justify-center rounded-md bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 transition"
+                        onClick={() => removeSongFromPlaylist(song.id)}
+                        title={`Remove from ${selectedPlaylist.name}`}
+                      >
+                        <Trash2 className="w-5 h-5" />
                       </button>
                     </div>
                   </div>
@@ -543,7 +725,11 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
 
         {/* Recently Played at the top */}
         {!showSearchResults && !selectedPlaylist && (
-          <RecentlyPlayed onPlay={(song) => playSong(song)} />
+          <RecentlyPlayed 
+            onPlay={(song) => playSong(song)} 
+            onToggleFavorite={toggleLike}
+            likedIds={likedIds}
+          />
         )}
 
         {/* Main Content */}
@@ -572,6 +758,9 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
         onTogglePlay={togglePlay}
         onSeekPct={seekToPct}
         onVolumePct={setVolumePct}
+        onToggleFavorite={toggleCurrentFavorite}
+        isFavorite={isCurrentFavorite}
+        onReplay={handleReplay}
       />
 
       {/* Add to Playlist Dialog */}

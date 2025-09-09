@@ -19,7 +19,7 @@ export function FriendActivity({ friends }: { friends: Friend[] }) {
         {friends.map((f) => (
           <button
             key={f.id}
-            onClick={() => navigate(`/friend/${encodeURIComponent(f.id)}`)}
+            onClick={() => navigate(`/profile/${encodeURIComponent(f.id)}`)}
             className="w-full flex items-center gap-3 text-left hover:bg-white/5 rounded-lg p-2"
           >
             <img

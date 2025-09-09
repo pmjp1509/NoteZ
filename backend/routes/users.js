@@ -393,7 +393,7 @@ router.get('/friends/requests', authenticateToken, async (req, res) => {
         *,
         sender:users!friend_requests_sender_id_fkey(id, username, full_name, avatar_url)
       `)
-      .eq('receiver_id', req.user.userId)
+      .eq('receiver_id', req.user.id)
       .eq('status', 'pending')
       .order('created_at', { ascending: false });
 
@@ -612,7 +612,7 @@ router.delete('/follow/:creatorId', authenticateToken, async (req, res) => {
     const { error } = await supabase
       .from('creator_follows')
       .delete()
-      .eq('follower_id', req.user.userId)
+      .eq('follower_id', req.user.id)
       .eq('creator_id', creatorId);
 
     if (error) {
@@ -702,7 +702,7 @@ router.put('/notifications/:notificationId/read', authenticateToken, async (req,
         is_read: true
       })
       .eq('id', notificationId)
-      .eq('user_id', req.user.userId);
+      .eq('user_id', req.user.id);
 
     if (error) {
       return res.status(500).json({ error: 'Failed to mark notification as read' });

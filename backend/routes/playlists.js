@@ -59,15 +59,49 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
+// Best-effort auth: attaches req.user if valid token present; otherwise continues unauthenticated
+const tryAuthenticate = async (req, _res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token || token.split('.').length !== 3) {
+    return next();
+  }
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (!error && user) {
+      const { data: dbUser } = await supabase
+        .from('users')
+        .select('id, username')
+        .eq('id', user.id)
+        .maybeSingle();
+      req.user = { id: user.id, email: user.email, username: dbUser?.username };
+    }
+  } catch {}
+  return next();
+};
+
 // Create new playlist
 router.post('/', authenticateToken, async (req, res) => {
   try {
-    const { name, description, isPublic = true } = req.body;
+    const { name, description, isPublic = true, isFavorites = false } = req.body;
     
-    console.log('Creating playlist request:', { name, description, isPublic, userId: req.user.id });
+    console.log('Creating playlist request:', { name, description, isPublic, isFavorites, userId: req.user.id });
 
     if (!name) {
       return res.status(400).json({ error: 'Playlist name is required' });
+    }
+
+    // Prevent creating multiple favorites playlists
+    if (isFavorites) {
+      const { data: existingFavorites, error: checkError } = await supabase
+        .from('playlists')
+        .select('id')
+        .eq('creator_id', req.user.id)
+        .eq('is_favorites', true)
+        .single();
+      
+      if (!checkError && existingFavorites) {
+        return res.status(400).json({ error: 'Favorites playlist already exists' });
+      }
     }
 
     console.log('Inserting playlist into database...');
@@ -78,7 +112,8 @@ router.post('/', authenticateToken, async (req, res) => {
         name,
         description,
         creator_id: req.user.id,
-        is_public: isPublic
+        is_public: isPublic,
+        is_favorites: isFavorites
       })
       .select()
       .single();
@@ -140,6 +175,7 @@ router.get('/me', authenticateToken, async (req, res) => {
         name: playlist.name,
         description: playlist.description,
         isPublic: playlist.is_public,
+        isFavorites: playlist.is_favorites,
         coverUrl: playlist.cover_url,
         songCount: playlist.playlist_songs[0]?.count || 0,
         createdAt: playlist.created_at,
@@ -205,6 +241,75 @@ router.get('/public', async (req, res) => {
 
   } catch (error) {
     console.error('Get public playlists error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Search playlists: returns public playlists matching q; if authenticated, also returns requester's private playlists matching q
+router.get('/search', tryAuthenticate, async (req, res) => {
+  try {
+    const { q = '', page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
+
+    if (!q || String(q).trim() === '') {
+      return res.status(400).json({ error: 'Search query is required' });
+    }
+
+    // Public playlists matching q
+    let publicQuery = supabase
+      .from('playlists')
+      .select(`
+        *,
+        creator:users!playlists_creator_id_fkey(username, full_name, avatar_url),
+        playlist_songs(count)
+      `)
+      .eq('is_public', true)
+      .or(`name.ilike.%${q}%,description.ilike.%${q}%`)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    const [{ data: publicPlaylists, error: pubErr }] = await Promise.all([publicQuery]);
+    if (pubErr) return res.status(500).json({ error: 'Failed to search public playlists' });
+
+    let results = publicPlaylists || [];
+
+    // If authenticated, include own private playlists matching q
+    if (req.user?.id) {
+      const { data: mine, error: mineErr } = await supabase
+        .from('playlists')
+        .select(`
+          *,
+          playlist_songs(count)
+        `)
+        .eq('creator_id', req.user.id)
+        .eq('is_public', false)
+        .or(`name.ilike.%${q}%,description.ilike.%${q}%`);
+      if (!mineErr && mine && mine.length) {
+        const existing = new Set(results.map(p => p.id));
+        mine.forEach(p => { if (!existing.has(p.id)) results.push(p); });
+      }
+    }
+
+    res.json({
+      playlists: results.map(playlist => ({
+        id: playlist.id,
+        name: playlist.name,
+        description: playlist.description,
+        coverUrl: playlist.cover_url,
+        creator: playlist.creator,
+        songCount: playlist.playlist_songs?.[0]?.count || 0,
+        isPublic: playlist.is_public,
+        createdAt: playlist.created_at
+      })),
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: results.length
+      }
+    });
+
+  } catch (error) {
+    console.error('Search playlists error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -537,7 +642,7 @@ router.put('/:id/songs/reorder', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Playlist not found' });
     }
 
-    if (playlist.creator_id !== req.user.userId) {
+    if (playlist.creator_id !== req.user.id) {
       return res.status(403).json({ error: 'You can only modify your own playlists' });
     }
 
