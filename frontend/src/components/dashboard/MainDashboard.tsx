@@ -8,9 +8,11 @@ import { RightSidebar } from "@/components/dashboard/RightSidebar";
 import { BottomPlayer } from "@/components/dashboard/BottomPlayer";
 import { Search, X, Plus, ListPlus, Heart, Play, ArrowLeft, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { type SongItem } from "@/lib/songs";
+import { type SongItem, normalizeSongItem } from "@/lib/songs";
 import { AddToPlaylistDialog } from "./AddToPlaylistDialog";
 import { supabase } from "@/config/supabase";
+import { useToast } from "@/hooks/useToast";
+import { ToastContainer } from "@/components/ui/toast";
 
 interface Playlist {
   id: string;
@@ -56,6 +58,7 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
   const [isLoadingPlaylist, setIsLoadingPlaylist] = useState(false);
   const [isRepeating, setIsRepeating] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const { toasts, removeToast, showFavoriteAdded, showFavoriteRemoved, showError } = useToast();
 
   useEffect(() => {
     let mounted = true;
@@ -64,15 +67,7 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
         console.log('[MainDashboard] fetching initial songs from backend');
         const response = await fetch(`http://localhost:3001/api/songs?limit=20`);
         const data = await response.json();
-        const mapped: SongItem[] = (data.songs || []).map((s: any) => ({
-          movie: s.movie || "",
-          name: s.title || s.name || "Unknown",
-          path: s.id ? String(s.id) : s.audioUrl || "",
-          id: s.id ? String(s.id) : undefined,
-          coverUrl: s.coverUrl || s.cover_url || "/assets/album-placeholder.jpg",
-          audioUrl: s.audioUrl || s.audio_url || "",
-          lyrics: s.lyrics || undefined,
-        }));
+        const mapped: SongItem[] = (data.songs || []).map(normalizeSongItem);
         if (mounted && mapped.length) {
           setCurrentSong(mapped[0]);
           console.log('[MainDashboard] initial song:', mapped[0]);
@@ -357,6 +352,7 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
           throw new Error(errorData.error || 'Failed to remove from favorites');
         }
         console.log('Successfully removed from favorites');
+        showFavoriteRemoved(song.name);
         window.dispatchEvent(new CustomEvent('favoritesChanged', { detail: { action: 'removed', songId } }));
       } else {
         const res = await fetch(`http://localhost:3001/api/favorites`, {
@@ -369,6 +365,7 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
           throw new Error(errorData.error || 'Failed to add to favorites');
         }
         console.log('Successfully added to favorites');
+        showFavoriteAdded(song.name);
         window.dispatchEvent(new CustomEvent('favoritesChanged', { detail: { action: 'added', songId } }));
       }
     } catch (e) {
@@ -399,14 +396,7 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
       const params = new URLSearchParams({ search: searchQuery });
       const response = await fetch(`http://localhost:3001/api/songs?${params}`);
       const data = await response.json();
-      const mapped: SongItem[] = (data.songs || []).map((s: any) => ({
-        movie: s.movie || "",
-        name: s.title || s.name || "Unknown",
-        path: s.id ? String(s.id) : s.audioUrl || "",
-        id: s.id ? String(s.id) : undefined,
-        coverUrl: s.coverUrl || "/assets/album-placeholder.jpg",
-        audioUrl: s.audioUrl || "",
-      }));
+      const mapped: SongItem[] = (data.songs || []).map(normalizeSongItem);
       setSearchResults(mapped);
       setShowSearchResults(true);
     } catch (error) {
@@ -771,6 +761,9 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
           songPath={selectedSong.path}
         />
       )}
+
+      {/* Toast Notifications */}
+      <ToastContainer toasts={toasts} onRemoveToast={removeToast} />
     </div>
   );
 }

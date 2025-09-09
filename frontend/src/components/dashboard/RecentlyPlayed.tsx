@@ -139,14 +139,32 @@ export function RecentlyPlayed({
   );
 }
 
+// Helper to clear all recently played songs
+export function clearRecentlyPlayed() {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+    window.dispatchEvent(new StorageEvent("storage", { key: STORAGE_KEY }));
+  } catch {
+    // ignore
+  }
+}
+
 // Helper to push a song into the recently played list
 export function pushRecentlyPlayed(song: SongItem) {
   try {
+    // Ensure the song has proper data structure
+    if (!song.id && !song.audioUrl) {
+      console.warn('Cannot add song to recently played - missing ID and audioUrl:', song);
+      return;
+    }
+    
     const current = loadRecentlyPlayed();
-    // Remove duplicates by path or name
-    const filtered = current.filter(
-      (s) => s.path !== song.path && s.audioUrl !== song.audioUrl && s.name !== song.name
-    );
+    // Remove duplicates by ID first, then by path, audioUrl, or name
+    const filtered = current.filter((s) => {
+      if (song.id && s.id) return s.id !== song.id;
+      return s.path !== song.path && s.audioUrl !== song.audioUrl && s.name !== song.name;
+    });
+    
     const next = [song, ...filtered].slice(0, 20);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     // Trigger listeners

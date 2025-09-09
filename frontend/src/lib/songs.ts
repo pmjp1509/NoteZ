@@ -15,6 +15,19 @@ async function getSignedUrl(bucket: string, path: string): Promise<string> {
   return data?.signedUrl ?? "";
 }
 
+// Helper function to normalize song data from different sources
+export function normalizeSongItem(song: any): SongItem {
+  return {
+    movie: song.movie || "",
+    name: song.title || song.name || "Unknown",
+    path: song.id ? String(song.id) : (song.path || song.audioUrl || ""),
+    id: song.id ? String(song.id) : undefined,
+    coverUrl: song.coverUrl || song.cover_url || "/assets/album-placeholder.jpg",
+    audioUrl: song.audioUrl || song.audio_url || "",
+    lyrics: song.lyrics || undefined,
+  };
+}
+
 export async function fetchRandomSongs(limit: number): Promise<SongItem[]> {
   console.log("[songs] fetchRandomSongs called with limit:", limit);
   const bucket = "songs";

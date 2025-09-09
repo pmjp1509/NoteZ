@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Play } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { SongItem } from "@/lib/songs";
+import { type SongItem, normalizeSongItem } from '@/lib/songs';
 
 export function Recommendations({ onPlay }: { onPlay: (song: SongItem) => void }) {
   const [items, setItems] = useState<SongItem[]>([]);
@@ -12,14 +12,7 @@ export function Recommendations({ onPlay }: { onPlay: (song: SongItem) => void }
       try {
         const response = await fetch(`http://localhost:3001/api/songs?limit=6`);
         const data = await response.json();
-        const mapped: SongItem[] = (data.songs || []).map((s: any) => ({
-          movie: s.movie || "",
-          name: s.title || s.name || "Unknown",
-          path: s.id ? String(s.id) : s.audioUrl || "",
-          id: s.id ? String(s.id) : undefined,
-          coverUrl: s.coverUrl || s.cover_url || "/assets/album-placeholder.jpg",
-          audioUrl: s.audioUrl || s.audio_url || "",
-        }));
+        const mapped: SongItem[] = (data.songs || []).map(normalizeSongItem);
         if (mounted) setItems(mapped.slice(0, 2));
       } catch (e) {
         if (!mounted) return;

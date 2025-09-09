@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { ThumbsUp, ThumbsDown, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { SongItem } from "@/lib/songs";
+import { type SongItem, normalizeSongItem } from '@/lib/songs';
 
 export function CommunityPlaylists({ onPlay }: { onPlay?: (song: SongItem) => void }) {
   const [songs, setSongs] = useState<SongItem[]>([]);
@@ -16,14 +16,7 @@ export function CommunityPlaylists({ onPlay }: { onPlay?: (song: SongItem) => vo
       try {
         const response = await fetch(`http://localhost:3001/api/songs?limit=6`);
         const data = await response.json();
-        const mapped: SongItem[] = (data.songs || []).map((s: any) => ({
-          movie: s.movie || "",
-          name: s.title || s.name || "Unknown",
-          path: s.id ? String(s.id) : s.audioUrl || "",
-          id: s.id ? String(s.id) : undefined,
-          coverUrl: s.coverUrl || s.cover_url || "/assets/album-placeholder.jpg",
-          audioUrl: s.audioUrl || s.audio_url || "",
-        }));
+        const mapped: SongItem[] = (data.songs || []).map(normalizeSongItem);
         if (mounted) setSongs(mapped);
       } catch (e) {
         if (!mounted) return;

@@ -7,7 +7,7 @@ import { UserProfileModal } from '@/components/dashboard/UserProfileModal';
 import { NotificationsPanel } from '@/components/dashboard/NotificationsPanel';
 import { FriendRequestModal } from '@/components/dashboard/FriendRequestModal';
 import { useEffect, useState, useRef } from 'react';
-import type { SongItem } from '@/lib/songs';
+import { type SongItem, normalizeSongItem } from '@/lib/songs';
 
 interface UserProfile {
   id: string;
@@ -105,13 +105,7 @@ export default function Dashboard() {
       const params = new URLSearchParams({ search: searchQuery });
       const response = await fetch(`http://localhost:3001/api/songs?${params}`);
       const data = await response.json();
-      const mapped: SongItem[] = (data.songs || []).map((s: any) => ({
-        movie: s.movie || "",
-        name: s.title || s.name || "Unknown",
-        path: s.id ? String(s.id) : s.audioUrl || "",
-        coverUrl: s.coverUrl || "/assets/album-placeholder.jpg",
-        audioUrl: s.audioUrl || "",
-      }));
+      const mapped: SongItem[] = (data.songs || []).map(normalizeSongItem);
       setSearchResults(mapped);
       setShowSearchResults(true);
     } catch (error) {
