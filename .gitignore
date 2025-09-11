@@ -16,3 +16,23 @@ Thumbs.db
 dist/
 build/
 
+# Ignore debug and test files
+debug-*.js
+test-*.js
+test-*.html
+test-*.md
+*DEBUG*.md
+*TROUBLESHOOTING*.md
+*FIXED*.md
+*WARP*.md
+create_*.sql
+optional_*.sql
+
+# Ignore temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+

@@ -194,6 +194,87 @@ router.get('/me', authenticateToken, async (req, res) => {
   }
 });
 
+// Get playlists for a specific user (for profile viewing)
+router.get('/user/:userId', tryAuthenticate, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { page = 1, limit = 20 } = req.query;
+    const offset = (page - 1) * limit;
+    
+    // Check if the target user exists
+    const { data: targetUser, error: userError } = await supabase
+      .from('users')
+      .select('id, role')
+      .eq('id', userId)
+      .single();
+    
+    if (userError || !targetUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const isOwnProfile = req.user?.id === userId;
+    const isContentCreator = targetUser.role === 'content_creator';
+    
+    // For content creators, show public playlists to everyone
+    // For regular users, only show public playlists unless it's their own profile or they're friends
+    let showAllPlaylists = isOwnProfile;
+    
+    // Check friendship if not own profile and not content creator
+    if (!isOwnProfile && !isContentCreator && req.user?.id) {
+      const { data: friendship } = await supabase
+        .from('user_friends')
+        .select('id')
+        .or(`and(user_id.eq.${req.user.id},friend_id.eq.${userId}),and(user_id.eq.${userId},friend_id.eq.${req.user.id})`)
+        .maybeSingle();
+      
+      showAllPlaylists = !!friendship;
+    }
+    
+    let query = supabase
+      .from('playlists')
+      .select(`
+        *,
+        playlist_songs(count)
+      `)
+      .eq('creator_id', userId)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+    
+    // Filter by visibility unless showing all playlists
+    if (!showAllPlaylists && !isContentCreator) {
+      query = query.eq('is_public', true);
+    }
+    
+    const { data: playlists, error } = await query;
+    
+    if (error) {
+      return res.status(500).json({ error: 'Failed to fetch playlists' });
+    }
+    
+    res.json({
+      playlists: playlists.map(playlist => ({
+        id: playlist.id,
+        name: playlist.name,
+        description: playlist.description,
+        isPublic: playlist.is_public,
+        coverUrl: playlist.cover_url,
+        songCount: playlist.playlist_songs[0]?.count || 0,
+        createdAt: playlist.created_at,
+        updatedAt: playlist.updated_at
+      })),
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: playlists.length
+      }
+    });
+    
+  } catch (error) {
+    console.error('Get user playlists error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Get public playlists
 router.get('/public', async (req, res) => {
   try {

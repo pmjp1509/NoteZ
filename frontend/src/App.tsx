@@ -10,8 +10,8 @@ import AdminRoute from './components/AdminRoute';
 const AdminDashboard = lazy(() => import('./components/dashboard/pages/AdminDashboard'));
 
 const Dashboard = lazy(() => import('./components/Dashboard'));
-const FriendProfilePage = lazy(() => import('./components/dashboard/pages/FriendProfilePage'));
-const ProfileEditPage = lazy(() => import('./components/dashboard/pages/ProfileEditPage'));
+const PublicProfilePage = lazy(() => import('./components/dashboard/pages/PublicProfilePage'));
+const SettingsPage = lazy(() => import('./components/dashboard/pages/SettingsPage'));
 const CreatorDashboard = lazy(() => import('./components/dashboard/ContentCreatorDashboard').then(m => ({ default: m.ContentCreatorDashboard })));
 
 function App() {
@@ -29,10 +29,10 @@ function App() {
                 <Route path="/login" element={<LoginForm />} />
                 <Route path="/register" element={<RegisterForm />} />
                 <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-                <Route path="/profile/:userId" element={<ProtectedRoute><FriendProfilePage /></ProtectedRoute>} />
+                <Route path="/profile/:userId" element={<ProtectedRoute><PublicProfilePage /></ProtectedRoute>} />
+                <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
                 <Route path="/creator" element={<ProtectedRoute><CreatorRoute><CreatorDashboard /></CreatorRoute></ProtectedRoute>} />
                 <Route path="/admin" element={<ProtectedRoute><AdminRoute><AdminDashboard /></AdminRoute></ProtectedRoute>} />
-                <Route path="/settings/profile" element={<ProtectedRoute><ProfileEditPage /></ProtectedRoute>} />
                 <Route path="/" element={<Navigate to="/login" replace />} />
               </Routes>
             </Suspense>

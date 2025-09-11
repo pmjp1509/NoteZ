@@ -3,11 +3,11 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { MainDashboard } from '@/components/dashboard/MainDashboard';
 import { MobileNav } from '@/components/dashboard/MobileNav';
-import { UserProfileModal } from '@/components/dashboard/UserProfileModal';
 import { NotificationsPanel } from '@/components/dashboard/NotificationsPanel';
 import { FriendRequestModal } from '@/components/dashboard/FriendRequestModal';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { type SongItem, normalizeSongItem } from '@/lib/songs';
+import { apiClient } from '@/lib/apiClient';
 
 interface UserProfile {
   id: string;
@@ -28,7 +28,6 @@ export default function Dashboard() {
   const [showSearchResults, setShowSearchResults] = useState(false);
   
   // New state for modals and panels
-  const [showProfileModal, setShowProfileModal] = useState(false);
   const [showNotificationsPanel, setShowNotificationsPanel] = useState(false);
   const [showFriendRequestModal, setShowFriendRequestModal] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -67,21 +66,13 @@ export default function Dashboard() {
 
   const fetchUserProfile = async () => {
     try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
-
-      const response = await fetch('http://localhost:3001/api/users/me', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setUserProfile(data.user);
-      }
+      console.log('🔍 Fetching user profile...');
+      const data = await apiClient.get('/api/users/me');
+      console.log('✅ User profile data received:', data);
+      setUserProfile(data.user);
+      console.log('📋 User profile state set:', data.user);
     } catch (error) {
-      console.error('Failed to fetch user profile:', error);
+      console.error('❌ Failed to fetch user profile:', error);
     }
   };
 
@@ -103,8 +94,7 @@ export default function Dashboard() {
     setIsSearching(true);
     try {
       const params = new URLSearchParams({ search: searchQuery });
-      const response = await fetch(`http://localhost:3001/api/songs?${params}`);
-      const data = await response.json();
+      const data = await apiClient.get(`/api/songs?${params}`);
       const mapped: SongItem[] = (data.songs || []).map(normalizeSongItem);
       setSearchResults(mapped);
       setShowSearchResults(true);
@@ -122,22 +112,92 @@ export default function Dashboard() {
     setShowSearchResults(false);
   }
 
-  const handleProfileUpdate = (updatedProfile: Partial<UserProfile>) => {
-    if (userProfile) {
-      setUserProfile({ ...userProfile, ...updatedProfile });
+
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+  const [pendingFriendRequestsCount, setPendingFriendRequestsCount] = useState(0);
+  const [lastCountsFetch, setLastCountsFetch] = useState(0);
+  const COUNT_REFRESH_INTERVAL = 60000; // 60 seconds
+  const THROTTLE_WINDOW = 5000; // 5 seconds minimum between fetches
+
+  // Optimized notification counts fetching with throttling
+  const fetchNotificationCounts = useCallback(async (force = false) => {
+    const now = Date.now();
+    
+    // Throttle requests - don't fetch if we fetched recently unless forced
+    if (!force && now - lastCountsFetch < THROTTLE_WINDOW) {
+      return;
     }
-  };
+
+    try {
+      console.log('🔄 Fetching notification counts...');
+      setLastCountsFetch(now);
+
+      // Use the new API client with deduplication and retry logic
+      const [notificationsData, friendRequestsData] = await Promise.allSettled([
+        apiClient.get('/api/users/notifications'),
+        apiClient.get('/api/friends/requests/pending')
+      ]);
+
+      // Handle notifications count
+      if (notificationsData.status === 'fulfilled') {
+        const unreadCount = (notificationsData.value.notifications || [])
+          .filter((n: any) => !n.isRead && n.type !== 'friend_request').length;
+        setUnreadNotificationsCount(unreadCount);
+      } else {
+        console.warn('Failed to fetch notifications:', notificationsData.reason);
+      }
+
+      // Handle friend requests count
+      if (friendRequestsData.status === 'fulfilled') {
+        setPendingFriendRequestsCount((friendRequestsData.value.requests || []).length);
+      } else {
+        console.warn('Failed to fetch friend requests:', friendRequestsData.reason);
+      }
+    } catch (error) {
+      console.error('Failed to fetch notification counts:', error);
+    }
+  }, [lastCountsFetch]);
+
+  // Fetch counts on mount and set up interval
+  useEffect(() => {
+    if (!currentUser) return;
+
+    // Fetch immediately
+    fetchNotificationCounts(true);
+
+    // Set up interval for regular updates
+    const interval = setInterval(() => {
+      fetchNotificationCounts();
+    }, COUNT_REFRESH_INTERVAL);
+
+    // Fetch when window gains focus (user comes back to tab)
+    const handleFocus = () => {
+      fetchNotificationCounts();
+    };
+    
+    // Fetch when window becomes visible (user switches to tab)
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        fetchNotificationCounts();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [currentUser, fetchNotificationCounts]);
 
   const getUnreadNotificationsCount = () => {
-    // This would be fetched from the notifications API
-    // For now, return a placeholder
-    return 0;
+    return unreadNotificationsCount;
   };
 
   const getPendingFriendRequestsCount = () => {
-    // This would be fetched from the friend requests API
-    // For now, return a placeholder
-    return 0;
+    return pendingFriendRequestsCount;
   };
 
   return (
@@ -248,12 +308,20 @@ export default function Dashboard() {
                       
                       <button
                         onClick={() => {
-                          setShowProfileModal(true);
+                          console.log('👆 View Profile button clicked');
+                          console.log('📋 Current userProfile:', userProfile);
+                          if (userProfile) {
+                            const profileUrl = `/profile/${userProfile.id}`;
+                            console.log('🌐 Navigating to:', profileUrl);
+                            navigate(profileUrl);
+                          } else {
+                            console.warn('⚠️ userProfile is null or undefined');
+                          }
                           setShowProfileDropdown(false);
                         }}
                         className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-white/10 transition-colors"
                       >
-                        Profile
+                        View Profile
                       </button>
                       
                       <button
@@ -288,8 +356,8 @@ export default function Dashboard() {
                       
                       <button
                         onClick={() => {
+                          navigate('/settings');
                           setShowProfileDropdown(false);
-                          // Add settings functionality here
                         }}
                         className="w-full text-left px-4 py-2 text-sm text-gray-200 hover:bg-white/10 transition-colors"
                       >
@@ -330,18 +398,11 @@ export default function Dashboard() {
       <MobileNav />
       
       {/* Modals and Panels */}
-      {userProfile && (
-        <UserProfileModal
-          isOpen={showProfileModal}
-          onClose={() => setShowProfileModal(false)}
-          user={userProfile}
-          onUpdate={handleProfileUpdate}
-        />
-      )}
       
       <NotificationsPanel
         isOpen={showNotificationsPanel}
         onClose={() => setShowNotificationsPanel(false)}
+        onFriendRequestAction={fetchNotificationCounts}
       />
       
       <FriendRequestModal

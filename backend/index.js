@@ -8,6 +8,9 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Trust proxy for rate limiting (important if behind reverse proxy)
+app.set('trust proxy', 1);
+
 // Middleware
 app.use(helmet());
 app.use(compression());
@@ -16,11 +19,23 @@ app.use(cors({
   credentials: true
 }));
 
-// Rate limiting
+// Rate limiting - different settings for dev vs production
+const isDevelopment = process.env.NODE_ENV !== 'production';
+
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
+  windowMs: isDevelopment ? 1 * 60 * 1000 : 15 * 60 * 1000, // 1 min in dev, 15 min in prod
+  max: isDevelopment ? 2000 : 300, // 2000 in dev, 300 in prod
+  standardHeaders: true, // Return rate limit info in headers
+  legacyHeaders: false,
+  message: {
+    error: 'Too many requests from this IP, please try again later.',
+    retryAfter: isDevelopment ? 60 : 900
+  },
+  // Skip rate limiting for health checks
+  skip: (req) => req.path === '/health'
 });
+
+// Apply basic rate limiting to all API routes
 app.use('/api/', limiter);
 
 app.use(express.json({ limit: '50mb' }));

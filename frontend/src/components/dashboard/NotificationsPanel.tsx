@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Bell, X, UserPlus, Music, Heart, Users, Check, XCircle, Loader2 } from 'lucide-react';
+import { apiClient } from '@/lib/apiClient';
 
 interface Notification {
   id: string;
-  type: 'friend_request' | 'new_song' | 'follow' | 'like' | 'playlist_share';
+  type: 'friend_request' | 'friend_request_response' | 'new_song' | 'follow' | 'like' | 'playlist_share';
   title: string;
   message: string;
   relatedId: string;
@@ -21,99 +22,178 @@ interface FriendRequest {
     fullName: string;
     avatarUrl?: string;
   };
-  status: string;
+  status: 'pending' | 'accepted' | 'rejected';
   createdAt: string;
+  fromNotification?: boolean;
+  isRead?: boolean;
 }
 
 interface NotificationsPanelProps {
   isOpen: boolean;
   onClose: () => void;
+  onFriendRequestAction?: () => void;
 }
 
-export function NotificationsPanel({ isOpen, onClose }: NotificationsPanelProps) {
+export function NotificationsPanel({ isOpen, onClose, onFriendRequestAction }: NotificationsPanelProps) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [friendRequests, setFriendRequests] = useState<FriendRequest[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'notifications' | 'requests'>('notifications');
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const fetchingRef = useRef(false);
 
+  // Only fetch when panel opens AND hasn't loaded before, or needs refresh
   useEffect(() => {
-    if (isOpen) {
-      fetchNotifications();
-      fetchFriendRequests();
+    if (isOpen && !fetchingRef.current) {
+      fetchingRef.current = true;
+      Promise.all([
+        fetchNotifications(),
+        fetchFriendRequests()
+      ]).finally(() => {
+        setHasLoaded(true);
+        fetchingRef.current = false;
+      });
     }
   }, [isOpen]);
 
   const fetchNotifications = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:3001/api/users/notifications', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setNotifications(data.notifications || []);
-      }
+      console.log('🔍 Fetching notifications...');
+      
+      const data = await apiClient.get('/api/users/notifications');
+      console.log('📨 Raw notifications data:', data);
+      
+      // Filter out friend_request notifications - they should only appear in Friend Requests tab
+      const allNotifications = data.notifications || [];
+      console.log('📨 All notifications received:', allNotifications.length, allNotifications);
+      
+      const friendRequestNotifs = allNotifications.filter(n => n.type === 'friend_request');
+      const friendRequestResponseNotifs = allNotifications.filter(n => n.type === 'friend_request_response');
+      const regularNotifications = allNotifications.filter(n => n.type !== 'friend_request');
+      
+      console.log('📨 Friend request notifications:', friendRequestNotifs.length, friendRequestNotifs);
+      console.log('📨 Friend request response notifications:', friendRequestResponseNotifs.length, friendRequestResponseNotifs);
+      console.log('📨 Regular notifications (after filtering):', regularNotifications.length, regularNotifications);
+      
+      // Log notification types
+      const types = [...new Set(allNotifications.map(n => n.type))];
+      console.log('📨 All notification types found:', types);
+      
+      setNotifications(regularNotifications);
     } catch (error) {
-      console.error('Failed to fetch notifications:', error);
+      console.error('❌ Error fetching notifications:', error);
     }
   };
 
   const fetchFriendRequests = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:3001/api/friends/requests/pending', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      console.log('🔍 Fetching all friend requests...');
+      
+      const data = await apiClient.get('/api/friends/requests/all');
+      const requests = data.requests || [];
+      console.log('👥 All friend requests received:', requests);
+      
+      // Map to expected format
+      const formattedRequests = requests.map((req: any) => ({
+        id: req.id,
+        sender: {
+          id: req.sender.id,
+          username: req.sender.username,
+          fullName: req.sender.fullName,
+          avatarUrl: req.sender.avatarUrl
+        },
+        status: req.status, // This will include pending, accepted, rejected
+        createdAt: req.createdAt,
+        updatedAt: req.updatedAt,
+        fromNotification: false
+      }));
+      
+      console.log('👥 Formatted friend requests:', formattedRequests);
+      setFriendRequests(formattedRequests);
+    } catch (error) {
+      console.error('❌ Error fetching friend requests:', error);
+    }
+  };
 
-      if (response.ok) {
-        const data = await response.json();
-        setFriendRequests(data.requests || []);
+  const [processingRequest, setProcessingRequest] = useState<string | null>(null);
+  
+  // Handle friend request action from notification (need to find the request first)
+  const handleFriendRequestFromNotification = async (relatedId: string, action: 'accept' | 'reject') => {
+    setProcessingRequest(relatedId);
+    console.log(`Attempting to ${action} friend request from notification. Related ID:`, relatedId);
+    
+    try {
+      const token = localStorage.getItem('token');
+      
+      // Find the friend request to get sender info
+      const friendRequest = friendRequests.find(req => req.id === relatedId);
+      
+      // Use API client for the request
+      const data = await apiClient.put(`/api/friends/requests/${relatedId}`, { action });
+      console.log(`${action} response:`, data);
+      
+      // Refresh data to show updated status
+      await fetchNotifications();
+      await fetchFriendRequests();
+      
+      // Show success message
+      console.log(`✅ Friend request ${action}ed successfully from notification`);
+      
+      // Refresh notification counts in parent component
+      if (onFriendRequestAction) {
+        onFriendRequestAction();
+      }
+      
+      if (action === 'accept') {
+        console.log('Friend request accepted from notification - users are now friends!');
       }
     } catch (error) {
-      console.error('Failed to fetch friend requests:', error);
+      console.error(`Error ${action}ing friend request from notification:`, error);
+      alert(`Error ${action}ing friend request`);
+    } finally {
+      setProcessingRequest(null);
     }
   };
 
   const handleFriendRequest = async (requestId: string, action: 'accept' | 'reject') => {
-    setIsLoading(true);
+    setProcessingRequest(requestId);
+    console.log(`Attempting to ${action} friend request:`, requestId);
+    
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:3001/api/friends/requests/${requestId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ action })
-      });
-
-      if (response.ok) {
-        // Remove the processed request
-        setFriendRequests(prev => prev.filter(req => req.id !== requestId));
-        // Refresh notifications
-        fetchNotifications();
+      
+      // Find the friend request to get sender info
+      const friendRequest = friendRequests.find(req => req.id === requestId);
+      
+      const data = await apiClient.put(`/api/friends/requests/${requestId}`, { action });
+      console.log(`${action} response:`, data);
+      
+      // Refresh data to get updated status from server
+      await fetchFriendRequests();
+      await fetchNotifications();
+      
+      // Show success message
+      console.log(`✅ Friend request ${action}ed successfully`);
+      
+      // Refresh notification counts in parent component
+      if (onFriendRequestAction) {
+        onFriendRequestAction();
+      }
+      
+      if (action === 'accept') {
+        console.log('Friend request accepted - users are now friends!');
       }
     } catch (error) {
-      console.error(`Failed to ${action} friend request:`, error);
+      console.error(`Error ${action}ing friend request:`, error);
+      alert(`Error ${action}ing friend request`);
     } finally {
-      setIsLoading(false);
+      setProcessingRequest(null);
     }
   };
 
   const markNotificationAsRead = async (notificationId: string) => {
     try {
-      const token = localStorage.getItem('token');
-      await fetch(`http://localhost:3001/api/users/notifications/${notificationId}/read`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      await apiClient.put(`/api/users/notifications/${notificationId}/read`);
 
       // Update local state
       setNotifications(prev => 
@@ -132,6 +212,8 @@ export function NotificationsPanel({ isOpen, onClose }: NotificationsPanelProps)
     switch (type) {
       case 'friend_request':
         return <UserPlus className="w-5 h-5 text-blue-400" />;
+      case 'friend_request_response':
+        return <Users className="w-5 h-5 text-green-400" />;
       case 'new_song':
         return <Music className="w-5 h-5 text-green-400" />;
       case 'follow':
@@ -156,8 +238,16 @@ export function NotificationsPanel({ isOpen, onClose }: NotificationsPanelProps)
 
   if (!isOpen) return null;
 
-  const unreadCount = notifications.filter(n => !n.isRead).length;
-  const pendingRequestsCount = friendRequests.length;
+  const unreadCount = notifications.filter(n => !n.isRead && n.type !== 'friend_request').length;
+  const pendingRequestsCount = friendRequests.filter(req => req.status === 'pending').length;
+  
+  // Log current counts for debugging
+  console.log('🔢 Current counts:', { 
+    unreadCount, 
+    pendingRequestsCount, 
+    totalNotifications: notifications.length,
+    totalFriendRequests: friendRequests.length 
+  });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -217,17 +307,33 @@ export function NotificationsPanel({ isOpen, onClose }: NotificationsPanelProps)
             </button>
           </div>
 
-          {/* Content */}
-          <div className="max-h-[60vh] overflow-y-auto">
-            {activeTab === 'notifications' ? (
+            {/* Debug Info - Remove this after fixing */}
+            {(notifications.length > 0 || friendRequests.length > 0) && (
+              <div className="px-4 py-2 bg-yellow-500/10 border-b border-yellow-500/20 text-xs">
+                <div className="text-yellow-400">
+                  DEBUG: Notifications: {notifications.length}, Friend Requests: {friendRequests.length}, Unread: {unreadCount}
+                </div>
+              </div>
+            )}
+            
+            {/* Content */}
+            <div className="max-h-[60vh] overflow-y-auto">
+              {activeTab === 'notifications' ? (
               <div className="p-4 space-y-3">
-                {notifications.length === 0 ? (
-                  <div className="text-center py-8">
-                    <Bell className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                    <p className="text-gray-400">No notifications yet</p>
-                  </div>
-                ) : (
-                  notifications.map((notification) => (
+                {(() => {
+                  // Filter out friend_request notifications (they go in Friend Requests tab)
+                  const generalNotifications = notifications.filter(n => n.type !== 'friend_request');
+                  
+                  if (generalNotifications.length === 0) {
+                    return (
+                      <div className="text-center py-8">
+                        <Bell className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                        <p className="text-gray-400">No notifications yet</p>
+                      </div>
+                    );
+                  }
+                  
+                  return generalNotifications.map((notification) => (
                     <div
                       key={notification.id}
                       className={`p-3 rounded-lg border transition-colors ${
@@ -251,89 +357,134 @@ export function NotificationsPanel({ isOpen, onClose }: NotificationsPanelProps)
                             {formatTimeAgo(notification.createdAt)}
                           </p>
                         </div>
-                        {!notification.isRead && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => markNotificationAsRead(notification.id)}
-                            className="text-gray-400 hover:text-white"
-                          >
-                            Mark as read
-                          </Button>
-                        )}
+                        <div className="flex items-center space-x-2">
+                          {!notification.isRead && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => markNotificationAsRead(notification.id)}
+                              className="text-gray-400 hover:text-white"
+                            >
+                              Mark as read
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  ))
-                )}
+                  ));
+                })()}
               </div>
             ) : (
               <div className="p-4 space-y-3">
                 {friendRequests.length === 0 ? (
                   <div className="text-center py-8">
                     <UserPlus className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                    <p className="text-gray-400">No pending friend requests</p>
+                    <p className="text-gray-400">No friend requests</p>
                   </div>
                 ) : (
-                  friendRequests.map((request) => (
-                    <div
-                      key={request.id}
-                      className="p-3 bg-white/5 border border-white/10 rounded-lg"
-                    >
-                      <div className="flex items-center space-x-3">
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
-                          {request.sender.avatarUrl ? (
-                            <img
-                              src={request.sender.avatarUrl}
-                              alt="Avatar"
-                              className="w-full h-full rounded-full object-cover"
-                            />
-                          ) : (
-                            <span className="text-white font-medium">
-                              {request.sender.username.charAt(0).toUpperCase()}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="text-sm font-medium text-white">
-                            {request.sender.fullName || request.sender.username}
-                          </h4>
-                          <p className="text-sm text-gray-400">
-                            @{request.sender.username}
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            {formatTimeAgo(request.createdAt)}
-                          </p>
-                        </div>
-                        <div className="flex space-x-2">
-                          <Button
-                            size="sm"
-                            onClick={() => handleFriendRequest(request.id, 'accept')}
-                            disabled={isLoading}
-                            className="bg-green-500 hover:bg-green-600 text-white px-3 py-1"
-                          >
-                            {isLoading ? (
-                              <Loader2 className="w-3 h-3 animate-spin" />
+                  <div className="max-h-96 overflow-y-auto space-y-3">
+                    {friendRequests.map((request) => (
+                      <div
+                        key={request.id}
+                        className={`p-4 rounded-lg border transition-colors ${
+                          request.status === 'accepted'
+                            ? 'bg-green-500/10 border-green-500/20'
+                            : request.status === 'rejected'
+                            ? 'bg-red-500/10 border-red-500/20'
+                            : 'bg-white/5 border-white/10 hover:bg-white/10'
+                        }`}
+                      >
+                        <div className="flex items-start space-x-3">
+                          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
+                            {request.sender.avatarUrl ? (
+                              <img
+                                src={request.sender.avatarUrl}
+                                alt="Avatar"
+                                className="w-full h-full rounded-full object-cover"
+                              />
                             ) : (
-                              <Check className="w-3 h-3" />
+                              <span className="text-white font-medium text-lg">
+                                {request.sender.username.charAt(0).toUpperCase()}
+                              </span>
                             )}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleFriendRequest(request.id, 'reject')}
-                            disabled={isLoading}
-                            className="border-red-500 text-red-400 hover:bg-red-500 hover:text-white px-3 py-1"
-                          >
-                            {isLoading ? (
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <XCircle className="w-3 h-3" />
-                            )}
-                          </Button>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="flex items-center space-x-2 mb-1">
+                                  <UserPlus className="w-4 h-4 text-blue-400" />
+                                  <h4 className="text-sm font-medium text-white">
+                                    Friend Request
+                                  </h4>
+                                  {request.status !== 'pending' && (
+                                    <span className={`px-2 py-1 text-xs rounded-full ${
+                                      request.status === 'accepted'
+                                        ? 'bg-green-500/20 text-green-400'
+                                        : 'bg-red-500/20 text-red-400'
+                                    }`}>
+                                      {request.status === 'accepted' ? 'Accepted' : 'Rejected'}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-sm text-gray-300 mb-1">
+                                  <span className="font-medium">{request.sender.fullName || request.sender.username}</span>
+                                  {' '}sent you a friend request
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  @{request.sender.username} • {formatTimeAgo(request.createdAt)}
+                                </p>
+                              </div>
+                              
+                              {/* Accept/Reject Buttons - Beside content */}
+                              {request.status === 'pending' && (
+                                <div className="flex space-x-2 ml-4">
+                                  <Button
+                                    size="sm"
+                                    onClick={() => {
+                                      if (request.fromNotification) {
+                                        handleFriendRequestFromNotification(request.id, 'accept');
+                                      } else {
+                                        handleFriendRequest(request.id, 'accept');
+                                      }
+                                    }}
+                                    disabled={processingRequest === request.id}
+                                    className="bg-green-500 hover:bg-green-600 text-white px-3 py-1 flex items-center space-x-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    {processingRequest === request.id ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <Check className="w-3 h-3" />
+                                    )}
+                                    <span>Accept</span>
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      if (request.fromNotification) {
+                                        handleFriendRequestFromNotification(request.id, 'reject');
+                                      } else {
+                                        handleFriendRequest(request.id, 'reject');
+                                      }
+                                    }}
+                                    disabled={processingRequest === request.id}
+                                    className="border-red-500 text-red-400 hover:bg-red-500 hover:text-white px-3 py-1 flex items-center space-x-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    {processingRequest === request.id ? (
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <XCircle className="w-3 h-3" />
+                                    )}
+                                    <span>Reject</span>
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))
+                    ))}
+                  </div>
                 )}
               </div>
             )}

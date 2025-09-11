@@ -241,6 +241,38 @@ router.get('/profile/:username', async (req, res) => {
   }
 });
 
+// Get user profile by user ID
+router.get('/profile/id/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, username, full_name, avatar_url, bio, role, created_at')
+      .eq('id', userId)
+      .single();
+
+    if (error || !user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      user: {
+        id: user.id,
+        username: user.username,
+        fullName: user.full_name,
+        avatarUrl: user.avatar_url,
+        bio: user.bio,
+        role: user.role,
+        createdAt: user.created_at
+      }
+    });
+  } catch (error) {
+    console.error('Get user profile error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Search users
 router.get('/search', async (req, res) => {
   try {
@@ -461,10 +493,10 @@ router.put('/friends/requests/:requestId', authenticateToken, async (req, res) =
       .from('notifications')
       .insert({
         user_id: friendRequest.sender_id,
-        type: 'friend_request',
+        type: 'friend_request_response',
         title: 'Friend Request ' + (action === 'accept' ? 'Accepted' : 'Rejected'),
         message: `@${req.user.username} ${action === 'accept' ? 'accepted' : 'rejected'} your friend request`,
-        related_id: req.user.id
+        related_id: requestId
       });
 
     res.json({
@@ -647,6 +679,53 @@ router.get('/following', authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error('Get followed creators error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create a notification (for testing/manual creation)
+router.post('/notifications', authenticateToken, async (req, res) => {
+  try {
+    const { userId, type, title, message, relatedId } = req.body;
+
+    if (!userId || !type || !message) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const { data: notification, error } = await supabase
+      .from('notifications')
+      .insert({
+        user_id: userId,
+        type: type,
+        title: title || 'Notification',
+        message: message,
+        related_id: relatedId,
+        is_read: false
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Failed to create notification:', error);
+      return res.status(500).json({ error: 'Failed to create notification' });
+    }
+
+    console.log('✅ Notification created:', notification);
+    res.json({
+      message: 'Notification created successfully',
+      notification: {
+        id: notification.id,
+        type: notification.type,
+        title: notification.title,
+        message: notification.message,
+        relatedId: notification.related_id,
+        isRead: notification.is_read,
+        createdAt: notification.created_at
+      }
+    });
+
+  } catch (error) {
+    console.error('Create notification error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
