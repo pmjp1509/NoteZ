@@ -1,6 +1,6 @@
 import { Music, UserCircle2, Search, X, Bell, UserPlus } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { MainDashboard } from '@/components/dashboard/MainDashboard';
 import { MobileNav } from '@/components/dashboard/MobileNav';
 import { NotificationsPanel } from '@/components/dashboard/NotificationsPanel';
@@ -22,6 +22,8 @@ interface UserProfile {
 export default function Dashboard() {
   const { currentUser, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SongItem[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -115,7 +117,7 @@ export default function Dashboard() {
 
   const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
   const [pendingFriendRequestsCount, setPendingFriendRequestsCount] = useState(0);
-  const [lastCountsFetch, setLastCountsFetch] = useState(0);
+  const lastCountsFetch = useRef(0);
   const COUNT_REFRESH_INTERVAL = 60000; // 60 seconds
   const THROTTLE_WINDOW = 5000; // 5 seconds minimum between fetches
 
@@ -124,13 +126,12 @@ export default function Dashboard() {
     const now = Date.now();
     
     // Throttle requests - don't fetch if we fetched recently unless forced
-    if (!force && now - lastCountsFetch < THROTTLE_WINDOW) {
+    if (!force && now - lastCountsFetch.current < THROTTLE_WINDOW) {
       return;
     }
 
     try {
-      console.log('🔄 Fetching notification counts...');
-      setLastCountsFetch(now);
+      lastCountsFetch.current = now;
 
       // Use the new API client with deduplication and retry logic
       const [notificationsData, friendRequestsData] = await Promise.allSettled([
@@ -156,7 +157,7 @@ export default function Dashboard() {
     } catch (error) {
       console.error('Failed to fetch notification counts:', error);
     }
-  }, [lastCountsFetch]);
+  }, []);
 
   // Fetch counts on mount and set up interval
   useEffect(() => {

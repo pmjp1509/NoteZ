@@ -7,11 +7,13 @@ import ProtectedRoute from './components/ProtectedRoute';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import CreatorRoute from './components/CreatorRoute';
 import AdminRoute from './components/AdminRoute';
-const AdminDashboard = lazy(() => import('./components/dashboard/pages/AdminDashboard'));
 
+// Import profile and settings directly for debugging
+import PublicProfilePage from './components/dashboard/pages/PublicProfilePage';
+import SettingsPage from './components/dashboard/pages/SettingsPage';
+
+const AdminDashboard = lazy(() => import('./components/dashboard/pages/AdminDashboard'));
 const Dashboard = lazy(() => import('./components/Dashboard'));
-const PublicProfilePage = lazy(() => import('./components/dashboard/pages/PublicProfilePage'));
-const SettingsPage = lazy(() => import('./components/dashboard/pages/SettingsPage'));
 const CreatorDashboard = lazy(() => import('./components/dashboard/ContentCreatorDashboard').then(m => ({ default: m.ContentCreatorDashboard })));
 
 function App() {

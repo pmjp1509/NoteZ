@@ -460,24 +460,65 @@ router.get('/requests/all', authenticateToken, async (req, res) => {
 // Get pending requests received by current user
 router.get('/requests/pending', authenticateToken, async (req, res) => {
   try {
-    const { data, error } = await supabase
+    console.log('\ud83d\udcf1 Fetching pending friend requests for user:', req.user.id);
+    
+    // First, get friend requests without joins to avoid foreign key issues
+    const { data: requests, error: requestsError } = await supabase
       .from('friend_requests')
-      .select('id, sender_id, created_at, status, sender:users!friend_requests_sender_id_fkey(id, username, full_name, avatar_url)')
+      .select('id, sender_id, created_at, status')
       .eq('receiver_id', req.user.id)
       .eq('status', 'pending')
       .order('created_at', { ascending: false });
 
-    if (error) {
+    if (requestsError) {
+      console.error('\u274c Error fetching pending requests:', requestsError);
       return res.status(500).json({ error: 'Failed to fetch requests' });
     }
+    
+    console.log('\ud83d\udc65 Found pending requests:', requests?.length || 0);
+    
+    // Get sender user data separately
+    const senderIds = requests?.map(r => r.sender_id) || [];
+    let sendersData = [];
+    
+    if (senderIds.length > 0) {
+      const { data: senders, error: sendersError } = await supabase
+        .from('users')
+        .select('id, username, full_name, avatar_url')
+        .in('id', senderIds);
+        
+      if (sendersError) {
+        console.error('\u274c Error fetching sender data:', sendersError);
+        return res.status(500).json({ error: 'Failed to fetch sender data' });
+      }
+      
+      sendersData = senders || [];
+    }
+    
+    // Combine data
+    const data = requests?.map(request => {
+      const sender = sendersData.find(s => s.id === request.sender_id) || {
+        id: request.sender_id,
+        username: 'Unknown',
+        full_name: 'Unknown User',
+        avatar_url: null
+      };
+      
+      return {
+        id: request.id,
+        sender: {
+          id: sender.id,
+          username: sender.username,
+          fullName: sender.full_name,
+          avatarUrl: sender.avatar_url
+        },
+        status: request.status,
+        createdAt: request.created_at
+      };
+    }) || [];
 
     res.json({
-      requests: data.map(r => ({
-        id: r.id,
-        sender: r.sender,
-        status: r.status,
-        createdAt: r.created_at
-      }))
+      requests: data
     });
   } catch (error) {
     console.error('Get pending requests error:', error);

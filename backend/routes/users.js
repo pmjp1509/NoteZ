@@ -54,14 +54,20 @@ const authenticateToken = async (req, res, next) => {
 
     let dbUser = existingUser;
     if (userError || !existingUser) {
-      const { data: newUser, error: createError } = await supabase.rpc('create_user_if_not_exists', {
-        user_id: user.id,
-        user_email: user.email,
-        user_name: user.email?.split('@')[0],
-        user_full_name: user.user_metadata?.full_name || user.user_metadata?.name,
-        user_avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture
-      });
+      // Create user directly instead of using RPC
+      const { data: newUser, error: createError } = await supabase
+        .from('users')
+        .insert({
+          id: user.id,
+          email: user.email,
+          username: user.email?.split('@')[0],
+          full_name: user.user_metadata?.full_name || user.user_metadata?.name,
+          avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture
+        })
+        .select()
+        .single();
       if (createError) {
+        console.error('❌ Error creating user:', createError);
         return res.status(500).json({ error: 'Failed to ensure user profile' });
       }
       dbUser = newUser;
@@ -117,22 +123,42 @@ router.get('/me', authenticateToken, async (req, res) => {
 router.put('/me', authenticateToken, async (req, res) => {
   try {
     const { username, fullName, bio, gender } = req.body;
+    
+    console.log('⚙️ Updating user profile for:', req.user.id);
+    console.log('Update data:', { username, fullName, bio, gender });
+
+    const updateData = {
+      username: username || undefined,
+      full_name: fullName || undefined,
+      bio: bio || undefined,
+      gender: gender || undefined,
+      updated_at: new Date().toISOString()
+    };
+    
+    // Remove undefined values
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] === undefined) {
+        delete updateData[key];
+      }
+    });
+    
+    console.log('Cleaned update data:', updateData);
 
     const { data: user, error } = await supabase
       .from('users')
-      .update({
-        username: username || undefined,
-        full_name: fullName || undefined,
-        bio: bio || undefined,
-        gender: gender || undefined,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', req.user.id)
       .select()
       .single();
 
     if (error) {
-      return res.status(500).json({ error: 'Failed to update profile' });
+      console.error('❌ Update profile error:', error);
+      console.error('Error details:', JSON.stringify(error, null, 2));
+      return res.status(500).json({ 
+        error: 'Failed to update profile', 
+        details: error.message,
+        code: error.code 
+      });
     }
 
     res.json({
@@ -814,6 +840,22 @@ router.put('/notifications/read-all', authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error('Mark all notifications read error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get user activity (placeholder endpoint)
+router.get('/:userId/activity', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // For now, return empty activities array
+    // In a real implementation, you would query an activities/user_activities table
+    res.json({
+      activities: []
+    });
+  } catch (error) {
+    console.error('Get user activity error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
