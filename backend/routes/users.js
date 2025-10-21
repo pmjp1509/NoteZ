@@ -143,7 +143,8 @@ router.put('/me', authenticateToken, async (req, res) => {
     });
     
     console.log('Cleaned update data:', updateData);
-
+    
+    // Try direct update first
     const { data: user, error } = await supabase
       .from('users')
       .update(updateData)
@@ -152,12 +153,27 @@ router.put('/me', authenticateToken, async (req, res) => {
       .single();
 
     if (error) {
-      console.error('❌ Update profile error:', error);
+      console.error('\u274c Update profile error:', error);
       console.error('Error details:', JSON.stringify(error, null, 2));
+      
+      // If update failed, try to check if user exists first
+      const { data: existingUser, error: checkError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', req.user.id)
+        .single();
+      
+      if (checkError) {
+        console.error('\u274c User does not exist:', checkError);
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      console.log('\u2139\ufe0f User exists, update failed due to permissions or data issue');
       return res.status(500).json({ 
         error: 'Failed to update profile', 
         details: error.message,
-        code: error.code 
+        code: error.code,
+        hint: 'This might be a Row Level Security (RLS) policy issue'
       });
     }
 
@@ -841,6 +857,48 @@ router.put('/notifications/read-all', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Mark all notifications read error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Test profile update (debug endpoint)
+router.post('/test-update', authenticateToken, async (req, res) => {
+  try {
+    console.log('\ud83d\udd0d Testing profile update for user:', req.user.id);
+    console.log('Request body:', req.body);
+    
+    // First, try to read the user
+    const { data: currentUser, error: readError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', req.user.id)
+      .single();
+    
+    if (readError) {
+      console.error('\u274c Cannot read user:', readError);
+      return res.status(500).json({ error: 'Cannot read user', details: readError });
+    }
+    
+    console.log('\u2705 Current user data:', currentUser);
+    
+    // Test a simple update
+    const { data: updatedUser, error: updateError } = await supabase
+      .from('users')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', req.user.id)
+      .select()
+      .single();
+    
+    if (updateError) {
+      console.error('\u274c Update failed:', updateError);
+      return res.status(500).json({ error: 'Update failed', details: updateError });
+    }
+    
+    console.log('\u2705 Update successful:', updatedUser);
+    res.json({ success: true, user: updatedUser });
+    
+  } catch (error) {
+    console.error('Test update error:', error);
+    res.status(500).json({ error: 'Test failed', details: error.message });
   }
 });
 
