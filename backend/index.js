@@ -56,6 +56,8 @@ app.use('/api/friends', require('./routes/friends'));
 app.use('/api/analytics', require('./routes/analytics'));
 app.use('/api/categories', require('./routes/categories'));
 app.use('/api/ai', require('./routes/ai'));
+app.use('/api/recommendations', require('./routes/recommendations'));
+app.use('/api/trending', require('./routes/trending'));
 
 // Error handling middleware
 app.use((err, req, res, next) => {

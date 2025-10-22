@@ -3,6 +3,8 @@ import { CommunityPlaylists } from "@/components/dashboard/CommunityPlaylists";
 // import { LyricsPanel } from "@/components/dashboard/LyricsPanel";
 import { Recommendations } from "@/components/dashboard/Recommendations";
 import { RecentlyPlayed, pushRecentlyPlayed } from "@/components/dashboard/RecentlyPlayed";
+import { RecommendationsSection } from "@/components/dashboard/RecommendationsSection";
+import { TrendingSection } from "@/components/dashboard/TrendingSection";
 import { LeftSidebar } from "@/components/dashboard/LeftSidebar";
 import { RightSidebar } from "@/components/dashboard/RightSidebar";
 import { BottomPlayer } from "@/components/dashboard/BottomPlayer";
@@ -57,6 +59,9 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
   const [playlistSongs, setPlaylistSongs] = useState<PlaylistSong[]>([]);
   const [isLoadingPlaylist, setIsLoadingPlaylist] = useState(false);
   const [isRepeating, setIsRepeating] = useState(false);
+  const [selectedMood, setSelectedMood] = useState<{ label: string; category: string; emoji: string; color: string } | null>(null);
+  const [moodSongs, setMoodSongs] = useState<PlaylistSong[]>([]);
+  const [isLoadingMoodSongs, setIsLoadingMoodSongs] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const { toasts, removeToast, showFavoriteAdded, showFavoriteRemoved, showError } = useToast();
 
@@ -209,13 +214,37 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
     audioRef.current.volume = volume / 100;
     audioRef.current
       .play()
-      .then(() => setIsPlaying(true))
+      .then(() => {
+        setIsPlaying(true);
+        // Track play in database
+        trackSongPlay(song.id);
+      })
       .catch((e) => {
         console.error('[MainDashboard] audio play() failed', e);
         setIsPlaying(false);
       });
     // Track recently played locally
     pushRecentlyPlayed(song);
+  };
+
+  // Track song play in listening history
+  const trackSongPlay = async (songId: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token || !songId) return;
+
+      await fetch('http://localhost:3001/api/analytics/track-play', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ songId })
+      });
+      console.log('[MainDashboard] Song play tracked:', songId);
+    } catch (error) {
+      console.error('[MainDashboard] Failed to track song play:', error);
+    }
   };
 
   const togglePlay = () => {
@@ -314,6 +343,62 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
       window.removeEventListener('favoritesChanged', handleFavoritesChanged as EventListener);
     };
   }, []);
+
+  // Listen for AI DJ song play events
+  useEffect(() => {
+    const handlePlaySongFromAI = (event: CustomEvent) => {
+      const songData = event.detail;
+      playSong(songData);
+    };
+
+    window.addEventListener('playSongFromAI', handlePlaySongFromAI as EventListener);
+    return () => {
+      window.removeEventListener('playSongFromAI', handlePlaySongFromAI as EventListener);
+    };
+  }, []);
+
+  // Listen for mood selection events
+  useEffect(() => {
+    const handleMoodSelected = (event: CustomEvent) => {
+      const moodData = event.detail;
+      setSelectedMood(moodData);
+      fetchMoodSongs(moodData.category);
+    };
+
+    window.addEventListener('moodSelected', handleMoodSelected as EventListener);
+    return () => {
+      window.removeEventListener('moodSelected', handleMoodSelected as EventListener);
+    };
+  }, []);
+
+  const fetchMoodSongs = async (category: string) => {
+    setIsLoadingMoodSongs(true);
+    try {
+      const response = await fetch(`http://localhost:3001/api/songs?category=${category}&limit=10`);
+      if (response.ok) {
+        const data = await response.json();
+        const songs = (data.songs || []).map((song: any) => ({
+          id: song.id,
+          title: song.title,
+          artist: song.artist,
+          movie: song.movie,
+          audioUrl: song.audio_url,
+          coverUrl: song.cover_url
+        }));
+        setMoodSongs(songs);
+      }
+    } catch (error) {
+      console.error('Failed to fetch mood songs:', error);
+      setMoodSongs([]);
+    } finally {
+      setIsLoadingMoodSongs(false);
+    }
+  };
+
+  const handleBackFromMood = () => {
+    setSelectedMood(null);
+    setMoodSongs([]);
+  };
 
   const toggleLike = async (song: SongItem) => {
     const token = localStorage.getItem('token');
@@ -474,7 +559,7 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
         <LeftSidebar />
       </div>
       
-      <main className="space-y-4">
+      <main className="space-y-4 min-w-0 overflow-hidden">
         {/* Search Bar (hidden when external search is provided) */}
         {!external && (
           <div className="flex items-center gap-3">
@@ -713,26 +798,144 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
           </div>
         )}
 
-        {/* Recently Played at the top */}
-        {!showSearchResults && !selectedPlaylist && (
-          <RecentlyPlayed 
-            onPlay={(song) => playSong(song)} 
-            onToggleFavorite={toggleLike}
-            likedIds={likedIds}
-          />
+        {/* Mood Songs Display */}
+        {selectedMood && (
+          <div className="bg-black/30 rounded-lg border border-white/10 p-4 mb-4">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={handleBackFromMood}
+                  className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-all"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <div>
+                  <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+                    <span className="text-2xl">{selectedMood.emoji}</span>
+                    {selectedMood.label} Mood
+                  </h2>
+                  <p className="text-gray-400 text-sm">
+                    Top songs for your {selectedMood.label.toLowerCase()} vibe
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            {isLoadingMoodSongs ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
+              </div>
+            ) : moodSongs.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-400">No songs found for this mood</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {moodSongs.map((song) => (
+                  <div
+                    key={song.id}
+                    className="flex items-center space-x-3 p-3 bg-white/5 rounded-lg border border-white/10 hover:bg-white/10 transition-colors group cursor-pointer"
+                    onClick={() => playSong({
+                      id: song.id,
+                      path: song.id,
+                      name: song.title,
+                      movie: song.movie || '',
+                      audioUrl: song.audioUrl,
+                      coverUrl: song.coverUrl || ''
+                    })}
+                  >
+                    <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
+                      {song.coverUrl ? (
+                        <img
+                          src={song.coverUrl}
+                          alt="Cover"
+                          className="w-full h-full rounded-lg object-cover"
+                        />
+                      ) : (
+                        <span className="text-white text-lg font-bold">
+                          {song.title.charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-white font-medium truncate group-hover:text-purple-300 transition-colors">
+                        {song.title}
+                      </h4>
+                      <p className="text-gray-400 text-sm truncate">{song.artist}</p>
+                      {song.movie && (
+                        <p className="text-gray-500 text-xs truncate">From: {song.movie}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        aria-label="Add to queue"
+                        className="w-9 h-9 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition"
+                        onClick={() => addToQueue({
+                          id: song.id,
+                          path: song.id,
+                          name: song.title,
+                          movie: song.movie || '',
+                          audioUrl: song.audioUrl,
+                          coverUrl: song.coverUrl || ''
+                        })}
+                      >
+                        <Plus className="w-5 h-5" />
+                      </button>
+                      <button
+                        aria-label="Add to playlist"
+                        className="w-9 h-9 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition"
+                        onClick={() => addToPlaylist({
+                          id: song.id,
+                          path: song.id,
+                          name: song.title,
+                          movie: song.movie || '',
+                          audioUrl: song.audioUrl,
+                          coverUrl: song.coverUrl || ''
+                        })}
+                      >
+                        <ListPlus className="w-5 h-5" />
+                      </button>
+                      <button
+                        aria-label="Like"
+                        className={`w-9 h-9 flex items-center justify-center rounded-md transition ${song.id && likedIds.has(song.id) ? 'bg-pink-600/20 text-pink-400 hover:bg-pink-600/30' : 'bg-white/10 hover:bg-white/15 text-white'}`}
+                        onClick={() => toggleLike({
+                          id: song.id,
+                          path: song.id,
+                          name: song.title,
+                          movie: song.movie || '',
+                          audioUrl: song.audioUrl,
+                          coverUrl: song.coverUrl || ''
+                        })}
+                        disabled={!song.id}
+                      >
+                        <Heart className={`w-5 h-5 ${song.id && likedIds.has(song.id) ? 'fill-pink-500 text-pink-400' : ''}`} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
-        {/* Main Content */}
-        {!showSearchResults && !selectedPlaylist && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-            <div className="space-y-3">
-              <MoodRecommendations />
-              {/* <RecentlyPlayed onPlay={(song) => playSong(song)} /> <-- Remove this line */}
-              <CommunityPlaylists onPlay={(song) => playSong(song)} />
-            </div>
-            <div className="md:col-span-1 lg:col-span-2">
-              <Recommendations onPlay={(song) => playSong(song)} />
-            </div>
+        {/* Main Content - New Layout */}
+        {!showSearchResults && !selectedPlaylist && !selectedMood && (
+          <div className="space-y-4">
+            {/* 1. Recently Played */}
+            <RecentlyPlayed 
+              onPlay={(song) => playSong(song)} 
+              onToggleFavorite={toggleLike}
+              likedIds={likedIds}
+            />
+            
+            {/* 2. Mood Vibes (Horizontal - Full Width) */}
+            <MoodRecommendations />
+            
+            {/* 3. Recommendations Section (Songs, Albums, Playlists) */}
+            <RecommendationsSection />
+            
+            {/* 4. Trending Section (Songs, Albums, Playlists with Filters) */}
+            <TrendingSection />
           </div>
         )}
       </main>

@@ -78,7 +78,21 @@ router.post('/:userId/request', authenticateToken, async (req, res) => {
       if (existingRequest.status === 'accepted') {
         return res.status(400).json({ error: 'Already friends' });
       }
-      // If previously rejected, allow creating a new pending request from current sender
+      // If previously rejected, delete the old request so we can create a fresh one
+      if (existingRequest.status === 'rejected') {
+        console.log('Deleting old rejected request:', existingRequest.id);
+        const { error: deleteError } = await supabase
+          .from('friend_requests')
+          .delete()
+          .eq('id', existingRequest.id);
+
+        if (deleteError) {
+          console.error('Failed to delete old request:', deleteError);
+          return res.status(500).json({ error: 'Failed to send friend request' });
+        }
+        console.log('✅ Old rejected request deleted, will create new one');
+        // Continue to create a new request below
+      }
     }
 
     const { data: friendRequest, error: insertError } = await supabase

@@ -1,24 +1,44 @@
 const express = require('express');
+const { createClient } = require('@supabase/supabase-js');
 
 const router = express.Router();
 
-// Simple emotion to playlist mapping
-const EMOTION_TO_PLAYLIST = {
-  joy: { name: 'Party Hits', tag: 'party' },
-  happy: { name: 'Party Hits', tag: 'party' },
-  optimism: { name: 'Uplift Vibes', tag: 'motivational' },
-  admiration: { name: 'Feel Good Pop', tag: 'happy' },
-  love: { name: 'Romantic Evening', tag: 'romantic' },
-  sadness: { name: 'Motivation Mix', tag: 'motivational' },
-  anger: { name: 'Calm Down', tag: 'calm' },
-  annoyance: { name: 'Lo‑fi Chill Beats', tag: 'chill' },
-  disappointment: { name: 'Fresh Start', tag: 'inspirational' },
-  fear: { name: 'Comfort & Calm', tag: 'calm' },
-  nervousness: { name: 'Lo‑fi Chill Beats', tag: 'chill' },
-  disgust: { name: 'Clean Slate', tag: 'inspirational' },
-  surprise: { name: 'Trending Now', tag: 'energetic' },
-  excitement: { name: 'Hype Mix', tag: 'energetic' },
-  default: { name: 'Lo‑fi Chill Beats', tag: 'chill' }
+// Initialize Supabase client
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
+// Emotion to song category mapping based on database schema
+// Maps detected emotions to song categories from your database
+const EMOTION_TO_CATEGORIES = {
+  // Primary emotions from j-hartmann/emotion-english-distilroberta-base
+  joy: ['happy', 'party', 'energetic'],
+  happy: ['happy', 'party', 'energetic'],
+  neutral: ['chill', 'calm', 'study'],
+  sadness: ['sad', 'motivational', 'nostalgic'],
+  anger: ['angry', 'workout', 'calm'],
+  disgust: ['calm', 'inspirational', 'chill'],
+  fear: ['calm', 'sleep', 'chill'],
+  surprise: ['energetic', 'party', 'happy'],
+  // Extended emotions (if detected by model)
+  optimism: ['motivational', 'inspirational', 'happy'],
+  admiration: ['happy', 'inspirational', 'energetic'],
+  love: ['romantic', 'happy', 'calm'],
+  annoyance: ['chill', 'calm', 'sleep'],
+  disappointment: ['sad', 'motivational', 'inspirational'],
+  nervousness: ['calm', 'sleep', 'study'],
+  excitement: ['energetic', 'party', 'workout'],
+  relaxed: ['chill', 'calm', 'sleep'],
+  nostalgic: ['nostalgic', 'sad', 'calm'],
+  bored: ['energetic', 'party', 'travel'],
+  stressed: ['calm', 'sleep', 'motivational'],
+  lonely: ['sad', 'romantic', 'nostalgic'],
+  confident: ['motivational', 'workout', 'party'],
+  tired: ['calm', 'sleep', 'chill'],
+  focused: ['study', 'calm', 'chill'],
+  // Default fallback
+  default: ['chill', 'calm', 'study']
 };
 
 async function callHuggingFace(model, inputs, { timeoutMs = 5000, retries = 2 } = {}) {
@@ -99,12 +119,46 @@ router.post('/mood', async (req, res) => {
       }
     }
 
-    const mapping = EMOTION_TO_PLAYLIST[label] || EMOTION_TO_PLAYLIST.default;
+    // Get categories for this emotion
+    const categories = EMOTION_TO_CATEGORIES[label] || EMOTION_TO_CATEGORIES.default;
+    
+    // Fetch songs from database based on categories
+    const { data: songs, error: dbError } = await supabase
+      .from('songs')
+      .select(`
+        id,
+        title,
+        artist,
+        movie,
+        audio_url,
+        cover_url,
+        song_categories!inner(name)
+      `)
+      .in('song_categories.name', categories)
+      .eq('is_public', true)
+      .limit(5);
+
+    if (dbError) {
+      console.error('Database error:', dbError);
+      return res.status(500).json({ error: 'Failed to fetch song suggestions' });
+    }
+
+    // Format the response
+    const suggestions = (songs || []).map(song => ({
+      id: song.id,
+      title: song.title,
+      artist: song.artist,
+      movie: song.movie,
+      audioUrl: song.audio_url,
+      coverUrl: song.cover_url,
+      category: song.song_categories?.name
+    }));
 
     res.json({
       input: text,
-      modelLabel: label,
-      recommendation: mapping
+      emotion: label,
+      categories: categories,
+      suggestions: suggestions
     });
   } catch (error) {
     console.error('AI /mood error:', error);

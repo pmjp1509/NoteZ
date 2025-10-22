@@ -173,7 +173,7 @@ router.get('/', async (req, res) => {
       .from('songs')
       .select(`
         *,
-        song_categories(name, color, description),
+        song_categories!inner(name, color, description),
         users(username, full_name, avatar_url),
         creator:users!songs_creator_id_fkey(username, full_name, avatar_url)
       `)
@@ -184,7 +184,7 @@ router.get('/', async (req, res) => {
       query = query.or(`title.ilike.%${search}%,artist.ilike.%${search}%,movie.ilike.%${search}%`);
     }
 
-    // Apply category filter
+    // Apply category filter (filter on the joined table)
     if (category) {
       query = query.eq('song_categories.name', category);
     }

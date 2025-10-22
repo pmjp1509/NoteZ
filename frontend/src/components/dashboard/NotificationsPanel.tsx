@@ -266,9 +266,9 @@ export function NotificationsPanel({ isOpen, onClose, onFriendRequestAction }: N
             variant="ghost"
             size="icon"
             onClick={onClose}
-            className="text-gray-400 hover:text-white"
+            className="text-gray-400 hover:text-white hover:bg-white/10 rounded-full"
           >
-            <X className="w-5 h-5" />
+            <X className="w-6 h-6" />
           </Button>
         </CardHeader>
         

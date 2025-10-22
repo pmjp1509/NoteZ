@@ -57,6 +57,7 @@ export function Library({ onPlay, onPlaylistSelect }: LibraryProps) {
   const [editingPlaylist, setEditingPlaylist] = useState<Playlist | null>(null);
   const [editPlaylistName, setEditPlaylistName] = useState('');
   const [editPlaylistDescription, setEditPlaylistDescription] = useState('');
+  const [editPlaylistPublic, setEditPlaylistPublic] = useState(true);
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingPlaylist, setDeletingPlaylist] = useState<Playlist | null>(null);
@@ -280,6 +281,7 @@ export function Library({ onPlay, onPlaylistSelect }: LibraryProps) {
     setEditingPlaylist(playlist);
     setEditPlaylistName(playlist.name);
     setEditPlaylistDescription(playlist.description || '');
+    setEditPlaylistPublic(playlist.isPublic);
     setShowEditPlaylist(true);
     setShowPlaylistMenu(null);
   };
@@ -306,6 +308,7 @@ export function Library({ onPlay, onPlaylistSelect }: LibraryProps) {
         body: JSON.stringify({
           name: editPlaylistName.trim(),
           description: editPlaylistDescription.trim(),
+          isPublic: editPlaylistPublic,
         }),
       });
 
@@ -313,7 +316,7 @@ export function Library({ onPlay, onPlaylistSelect }: LibraryProps) {
         setPlaylists((prev) =>
           prev.map((p) =>
             p.id === editingPlaylist.id
-              ? { ...p, name: editPlaylistName.trim(), description: editPlaylistDescription.trim() }
+              ? { ...p, name: editPlaylistName.trim(), description: editPlaylistDescription.trim(), isPublic: editPlaylistPublic }
               : p
           )
         );
@@ -321,6 +324,7 @@ export function Library({ onPlay, onPlaylistSelect }: LibraryProps) {
         setEditingPlaylist(null);
         setEditPlaylistName('');
         setEditPlaylistDescription('');
+        setEditPlaylistPublic(true);
       } else {
         console.error('Failed to update playlist');
       }
@@ -420,59 +424,62 @@ export function Library({ onPlay, onPlaylistSelect }: LibraryProps) {
                     {playlist.name}
                   </h4>
                   {playlist.description && <p className="text-gray-400 text-sm truncate">{playlist.description}</p>}
-                  <div className="flex items-center space-x-2 text-xs">
-                    <span className="text-gray-500">
-                      {isFav ? favorites.length : playlist.songCount} {isFav ? 'songs' : 'songs'}
-                    </span>
-                    <span
-                      className={`px-2 py-1 rounded-full text-xs ${
-                        isFav
-                          ? 'bg-red-500/20 text-red-400'
-                          : playlist.isPublic
-                          ? 'bg-green-500/20 text-green-400'
-                          : 'bg-yellow-500/20 text-yellow-400'
-                      }`}
-                    >
-                      {isFav ? 'Special' : playlist.isPublic ? 'Public' : 'Private'}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="relative">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (isFav) return; // no menu for favorites
-                      setShowPlaylistMenu(showPlaylistMenu === playlist.id ? null : playlist.id);
-                    }}
-                    className={`text-gray-400 hover:text-white p-2 rounded-lg transition-all ${
-                      isFav ? 'invisible group-hover:visible pointer-events-none' : ''
-                    }`}
-                  >
-                    <MoreHorizontal className="w-4 h-4" />
-                  </Button>
-
-                  {!isFav && showPlaylistMenu === playlist.id && (
-                    <div className="absolute right-0 top-10 z-50 bg-black/90 border border-white/20 rounded-lg shadow-lg min-w-[120px]">
-                      <button
-                        onClick={() => handleEditPlaylist(playlist)}
-                        className="flex items-center space-x-2 w-full px-3 py-2 text-sm text-white hover:bg-white/10 transition-colors"
+                  {!isFav && (
+                    <div className="flex items-center space-x-2 text-xs">
+                      <span className="text-gray-500">{playlist.songCount} songs</span>
+                      <span
+                        className={`px-2 py-1 rounded-full text-xs ${
+                          playlist.isPublic
+                            ? 'bg-green-500/20 text-green-400'
+                            : 'bg-yellow-500/20 text-yellow-400'
+                        }`}
                       >
-                        <Edit className="w-4 h-4" />
-                        <span>Edit</span>
-                      </button>
-                      <button
-                        onClick={() => handleDeletePlaylist(playlist)}
-                        className="flex items-center space-x-2 w-full px-3 py-2 text-sm text-red-400 hover:bg-red-500/20 transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        <span>Delete</span>
-                      </button>
+                        {playlist.isPublic ? 'Public' : 'Private'}
+                      </span>
                     </div>
                   )}
                 </div>
+
+                {!isFav && (
+                  <div className="relative">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowPlaylistMenu(showPlaylistMenu === playlist.id ? null : playlist.id);
+                      }}
+                      className="text-gray-400 hover:text-white p-2 rounded-lg transition-all"
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </Button>
+
+                    {showPlaylistMenu === playlist.id && (
+                      <div className="absolute right-0 top-10 z-50 bg-black/90 border border-white/20 rounded-lg shadow-lg min-w-[120px]">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditPlaylist(playlist);
+                          }}
+                          className="flex items-center space-x-2 w-full px-3 py-2 text-sm text-white hover:bg-white/10 transition-colors"
+                        >
+                          <Edit className="w-4 h-4" />
+                          <span>Edit</span>
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeletePlaylist(playlist);
+                          }}
+                          className="flex items-center space-x-2 w-full px-3 py-2 text-sm text-red-400 hover:bg-red-500/20 transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span>Delete</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -699,6 +706,30 @@ export function Library({ onPlay, onPlaylistSelect }: LibraryProps) {
                   rows={3}
                   className="w-full px-3 py-2 bg-white/5 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-white">Privacy</label>
+                <div className="flex space-x-3">
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      checked={editPlaylistPublic}
+                      onChange={() => setEditPlaylistPublic(true)}
+                      className="text-purple-500 focus:ring-purple-500"
+                    />
+                    <span className="text-white">Public</span>
+                  </label>
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      checked={!editPlaylistPublic}
+                      onChange={() => setEditPlaylistPublic(false)}
+                      className="text-purple-500 focus:ring-purple-500"
+                    />
+                    <span className="text-white">Private</span>
+                  </label>
+                </div>
               </div>
 
               <div className="flex space-x-3">
