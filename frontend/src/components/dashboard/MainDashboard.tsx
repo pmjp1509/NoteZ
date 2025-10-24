@@ -8,7 +8,9 @@ import { TrendingSection } from "@/components/dashboard/TrendingSection";
 import { LeftSidebar } from "@/components/dashboard/LeftSidebar";
 import { RightSidebar } from "@/components/dashboard/RightSidebar";
 import { BottomPlayer } from "@/components/dashboard/BottomPlayer";
-import { Search, X, Plus, ListPlus, Heart, Play, ArrowLeft, Trash2 } from "lucide-react";
+import { X, Plus, ListPlus, Heart, ArrowLeft, Trash2 } from "lucide-react";
+import CreatorDetail from "@/components/dashboard/CreatorDetail";
+import { Button } from '@/components/ui/button';
 import { useEffect, useRef, useState } from "react";
 import { type SongItem, normalizeSongItem } from "@/lib/songs";
 import { AddToPlaylistDialog } from "./AddToPlaylistDialog";
@@ -42,6 +44,8 @@ type ExternalSearchProps = {
   showSearchResults: boolean;
   onSearch: () => void;
   onClear: () => void;
+  artistResults?: any[];
+  setArtistResults?: (v: any[]) => void;
 };
 
 export function MainDashboard({ external }: { external?: ExternalSearchProps }) {
@@ -51,8 +55,12 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(75);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchFilter, setSearchFilter] = useState<'all'|'songs'|'albums'|'playlists'|'artists'>('songs');
   const [searchResults, setSearchResults] = useState<SongItem[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  const [albumResults, setAlbumResults] = useState<any[]>([]);
+  const [playlistResults, setPlaylistResults] = useState<any[]>([]);
+  const [artistResults, setArtistResults] = useState<any[]>([]);
+  
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [queue, setQueue] = useState<SongItem[]>([]);
   const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
@@ -62,6 +70,7 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
   const [selectedMood, setSelectedMood] = useState<{ label: string; category: string; emoji: string; color: string } | null>(null);
   const [moodSongs, setMoodSongs] = useState<PlaylistSong[]>([]);
   const [isLoadingMoodSongs, setIsLoadingMoodSongs] = useState(false);
+  const [selectedCreator, setSelectedCreator] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   // Flag ref to mark a user-play request so the loader effect knows to attempt play
   const playRequestedRef = useRef<boolean>(false);
@@ -158,7 +167,7 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
       if (response.ok) {
         const data = await response.json();
           // Normalize all songs to ensure fresh URLs
-          const normalizedSongs = await Promise.all((data.songs || []).map(song => normalizeSongItem(song)));
+          const normalizedSongs = await Promise.all((data.songs || []).map((song: any) => normalizeSongItem(song)));
           console.log('[MainDashboard] Loaded playlist songs (normalized):', normalizedSongs);
           // Convert normalized SongItem into the PlaylistSong shape UI expects (title, artist, movie...)
           const playlistEntries: PlaylistSong[] = normalizedSongs
@@ -466,11 +475,18 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
     window.addEventListener('addToQueue', handleAddToQueue as EventListener);
     window.addEventListener('openAddToPlaylist', handleOpenAddToPlaylist as EventListener);
     window.addEventListener('toggleLike', handleToggleLike as EventListener);
+    // Listen for requests to open a creator detail in the middle column
+    const handleOpenCreator = (event: CustomEvent) => {
+      const { creatorId } = event.detail || {};
+      if (creatorId) setSelectedCreator(creatorId);
+    };
+    window.addEventListener('openCreator', handleOpenCreator as EventListener);
 
     return () => {
       window.removeEventListener('addToQueue', handleAddToQueue as EventListener);
       window.removeEventListener('openAddToPlaylist', handleOpenAddToPlaylist as EventListener);
       window.removeEventListener('toggleLike', handleToggleLike as EventListener);
+      window.removeEventListener('openCreator', handleOpenCreator as EventListener);
     };
   }, [queue, likedIds]);
 
@@ -592,25 +608,59 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
   };
 
   const handleSearch = async () => {
-    if (!searchQuery.trim()) {
+    if (!effectiveSearchQuery.trim()) {
       setSearchResults([]);
+      setAlbumResults([]);
+      setPlaylistResults([]);
+      setArtistResults([]);
       setShowSearchResults(false);
       return;
     }
 
-    setIsSearching(true);
     try {
-      const params = new URLSearchParams({ search: searchQuery });
-      const response = await fetch(`http://localhost:3001/api/songs?${params}`);
-      const data = await response.json();
-      const mapped: SongItem[] = await Promise.all((data.songs || []).map(normalizeSongItem));
-      setSearchResults(mapped);
-      setShowSearchResults(true);
+  const params = new URLSearchParams({ search: effectiveSearchQuery });
+      // Branch based on filter
+      if (searchFilter === 'albums') {
+        // Use the dedicated album search endpoint
+        const response = await fetch(`http://localhost:3001/api/albums/search?q=${encodeURIComponent(effectiveSearchQuery)}`);
+        if (response.ok) {
+          const data = await response.json();
+          setAlbumResults(data.albums || []);
+        } else {
+          setAlbumResults([]);
+        }
+        setShowSearchResults(true);
+      } else if (searchFilter === 'playlists') {
+        // Use backend playlist search endpoint which expects `q` param and path /search
+        const response = await fetch(`http://localhost:3001/api/playlists/search?q=${encodeURIComponent(effectiveSearchQuery)}`);
+        if (response.ok) {
+          const data = await response.json();
+          setPlaylistResults(data.playlists || data.items || []);
+        } else {
+          setPlaylistResults([]);
+        }
+        setShowSearchResults(true);
+      } else if (searchFilter === 'artists') {
+        const response = await fetch(`http://localhost:3001/api/users/search?q=${encodeURIComponent(effectiveSearchQuery)}`);
+        const data = await response.json();
+        // Accept creators/users shapes
+        setArtistResults(data.creators || data.users || data.items || []);
+        setShowSearchResults(true);
+      } else {
+        // songs or all (default to songs)
+        const response = await fetch(`http://localhost:3001/api/songs?${params}`);
+        const data = await response.json();
+        const mapped: SongItem[] = await Promise.all((data.songs || []).map(normalizeSongItem));
+        setSearchResults(mapped);
+        setShowSearchResults(true);
+      }
     } catch (error) {
       console.error('Search failed:', error);
       setSearchResults([]);
+      setAlbumResults([]);
+      setPlaylistResults([]);
+      setArtistResults([]);
     } finally {
-      setIsSearching(false);
     }
   };
 
@@ -622,18 +672,14 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
 
   // Derive effective search state/handlers (use external if provided)
   const effectiveSearchQuery = external ? external.searchQuery : searchQuery;
-  const setEffectiveSearchQuery = external ? external.setSearchQuery : setSearchQuery;
   const effectiveSearchResults = external ? external.searchResults : searchResults;
-  const effectiveIsSearching = external ? external.isSearching : isSearching;
+  const effectiveArtistResults = external ? external.artistResults || [] : artistResults;
   const effectiveShowSearchResults = external ? external.showSearchResults : showSearchResults;
-  const triggerSearch = external ? external.onSearch : handleSearch;
   const triggerClear = external ? external.onClear : clearSearch;
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleSearch();
-    }
-  };
+  
+
+  
 
   // Remove song from playlist
   const removeSongFromPlaylist = async (songId: string) => {
@@ -682,46 +728,14 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
       </div>
       
       <main className="space-y-4 min-w-0 overflow-hidden">
-        {/* Search Bar (hidden when external search is provided) */}
-        {!external && (
-          <div className="flex items-center gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search songs, artists, or movies..."
-                value={effectiveSearchQuery}
-                onChange={(e) => setEffectiveSearchQuery(e.target.value)}
-                onKeyPress={handleKeyPress}
-                className="w-full pl-10 pr-4 py-2 bg-white/5 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-              />
-            </div>
-            
-            <button
-              onClick={triggerSearch}
-              disabled={effectiveIsSearching}
-              className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-lg transition-all disabled:opacity-50"
-            >
-              {effectiveIsSearching ? 'Searching...' : 'Search'}
-            </button>
-            
-            {effectiveSearchQuery && (
-              <button
-                onClick={triggerClear}
-                className="p-2 text-gray-400 hover:text-white transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            )}
-          </div>
-        )}
+        {/* Search is handled from the navbar. Filters are shown inside the search results box below. */}
 
         {/* Search Results */}
         {effectiveShowSearchResults && (
           <div className="bg-black/30 rounded-lg border border-white/10 p-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-white">
-                Search Results ({effectiveSearchResults.length})
+                Search Results
                 <span className="ml-3 text-sm text-gray-400">Queue: {queue.length}</span>
               </h3>
               <button
@@ -731,56 +745,133 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
                 <X className="w-5 h-5" />
               </button>
             </div>
-            
-            {effectiveSearchResults.length === 0 ? (
-              <p className="text-gray-400 text-center py-8">No songs found matching your search.</p>
-            ) : (
-              <div className="grid grid-cols-1 gap-4">
-                {effectiveSearchResults.map((song) => (
-                  <div
-                    key={song.path || song.audioUrl || song.name}
-                    onClick={() => playSong(song)}
-                    className="p-4 bg-white/5 rounded-lg border border-white/10 cursor-pointer hover:bg-white/10 transition-all group"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
-                        <span className="text-white text-lg font-bold">
-                          {song.name?.charAt(0) || 'M'}
-                        </span>
+
+            {/* Filters - show inside search results */}
+            <div className="flex items-center gap-2 mb-4">
+              <button className={`px-3 py-1 rounded-md text-sm ${searchFilter === 'songs' ? 'bg-purple-600 text-white' : 'bg-white/5 text-gray-200'}`} onClick={() => { setSearchFilter('songs'); /* songs are handled by header/parent */ }}>
+                Songs
+              </button>
+              <button className={`px-3 py-1 rounded-md text-sm ${searchFilter === 'albums' ? 'bg-purple-600 text-white' : 'bg-white/5 text-gray-200'}`} onClick={() => { setSearchFilter('albums'); handleSearch(); }}>
+                Albums
+              </button>
+              <button className={`px-3 py-1 rounded-md text-sm ${searchFilter === 'playlists' ? 'bg-purple-600 text-white' : 'bg-white/5 text-gray-200'}`} onClick={() => { setSearchFilter('playlists'); handleSearch(); }}>
+                Playlists
+              </button>
+              <button className={`px-3 py-1 rounded-md text-sm ${searchFilter === 'artists' ? 'bg-purple-600 text-white' : 'bg-white/5 text-gray-200'}`} onClick={() => { setSearchFilter('artists'); handleSearch(); }}>
+                Artists
+              </button>
+            </div>
+
+            {/* Songs */}
+            {(searchFilter === 'songs' || searchFilter === 'all') && (
+              <>
+                {effectiveSearchResults.length === 0 ? (
+                  <p className="text-gray-400 text-center py-8">No songs found matching your search.</p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4">
+                    {effectiveSearchResults.map((song) => (
+                      <div
+                        key={song.path || song.audioUrl || song.name}
+                        onClick={() => playSong(song)}
+                        className="p-4 bg-white/5 rounded-lg border border-white/10 cursor-pointer hover:bg-white/10 transition-all group"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
+                            <span className="text-white text-lg font-bold">{song.name?.charAt(0) || 'M'}</span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h4 className="text-white font-medium truncate group-hover:text-purple-300 transition-colors">{song.name}</h4>
+                            <p className="text-gray-400 text-sm truncate">{song.movie}</p>
+                          </div>
+                          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                            <button aria-label="Add to queue" className="w-9 h-9 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition" onClick={() => addToQueue(song)}>
+                              <Plus className="w-5 h-5" />
+                            </button>
+                            <button aria-label="Add to playlist" className="w-9 h-9 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition" onClick={() => addToPlaylist(song)}>
+                              <ListPlus className="w-5 h-5" />
+                            </button>
+                            <button aria-label="Like" className={`w-9 h-9 flex items-center justify-center rounded-md transition ${song.id && likedIds.has(song.id) ? 'bg-pink-600/20 text-pink-400 hover:bg-pink-600/30' : 'bg-white/10 hover:bg-white/15 text-white'}`} onClick={() => toggleLike(song)} disabled={!song.id}>
+                              <Heart className={`w-5 h-5 ${song.id && likedIds.has(song.id) ? 'fill-pink-500 text-pink-400' : ''}`} />
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="text-white font-medium truncate group-hover:text-purple-300 transition-colors">
-                          {song.name}
-                        </h4>
-                        <p className="text-gray-400 text-sm truncate">{song.movie}</p>
-                      </div>
-                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          aria-label="Add to queue"
-                          className="w-9 h-9 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition"
-                          onClick={() => addToQueue(song)}
-                        >
-                          <Plus className="w-5 h-5" />
-                        </button>
-                        <button
-                          aria-label="Add to playlist"
-                          className="w-9 h-9 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition"
-                          onClick={() => addToPlaylist(song)}
-                        >
-                          <ListPlus className="w-5 h-5" />
-                        </button>
-                        <button
-                          aria-label="Like"
-                          className={`w-9 h-9 flex items-center justify-center rounded-md transition ${song.id && likedIds.has(song.id) ? 'bg-pink-600/20 text-pink-400 hover:bg-pink-600/30' : 'bg-white/10 hover:bg-white/15 text-white'}`}
-                          onClick={() => toggleLike(song)}
-                          disabled={!song.id}
-                        >
-                          <Heart className={`w-5 h-5 ${song.id && likedIds.has(song.id) ? 'fill-pink-500 text-pink-400' : ''}`} />
-                        </button>
-                      </div>
-                    </div>
+                    ))}
                   </div>
-                ))}
+                )}
+              </>
+            )}
+
+            {/* Albums */}
+            {searchFilter === 'albums' && (
+              <div>
+                {albumResults.length === 0 ? (
+                  <p className="text-gray-400 text-center py-8">No albums found.</p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4">
+                    {albumResults.map((alb) => (
+                      <div key={alb.id} className="p-4 bg-white/5 rounded-lg border border-white/10 cursor-pointer hover:bg-white/10 transition-all flex items-center" onClick={() => {/* maybe open album view later */}}>
+                        <div className="w-16 h-16 rounded-lg overflow-hidden bg-white/5 flex-shrink-0">
+                          {alb.cover_url || alb.coverUrl ? <img src={alb.cover_url || alb.coverUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-white">{(alb.title||'A').charAt(0)}</div>}
+                        </div>
+                        <div className="flex-1 min-w-0 ml-4">
+                          <h4 className="text-white font-medium truncate">{alb.title}</h4>
+                          <p className="text-gray-400 text-sm truncate">{alb.creator_name || alb.creator?.username || alb.creatorUsername || alb.creatorName || "Unknown"}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Playlists */}
+            {searchFilter === 'playlists' && (
+              <div>
+                {playlistResults.length === 0 ? (
+                  <p className="text-gray-400 text-center py-8">No playlists found.</p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4">
+                    {playlistResults.map((pl) => (
+                      <div key={pl.id} className="p-4 bg-white/5 rounded-lg border border-white/10 cursor-pointer hover:bg-white/10 transition-all flex items-center" onClick={() => {/* maybe open playlist */}}>
+                        <div className="w-16 h-16 rounded-lg overflow-hidden bg-white/5 flex-shrink-0">
+                          {pl.cover_url || pl.coverUrl ? <img src={pl.cover_url || pl.coverUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-white">{(pl.name||'P').charAt(0)}</div>}
+                        </div>
+                        <div className="flex-1 min-w-0 ml-4">
+                          <h4 className="text-white font-medium truncate">{pl.name}</h4>
+                          <p className="text-gray-400 text-sm truncate">{pl.creator_name || pl.creator?.username || pl.creatorName || 'Unknown'}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Artists */}
+            {searchFilter === 'artists' && (
+              <div>
+                {effectiveArtistResults.length === 0 ? (
+                  <p className="text-gray-400 text-center py-8">No artists found.</p>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4">
+                    {effectiveArtistResults.map((artist) => (
+                      <div key={artist.id} className="p-3 bg-white/5 rounded-lg border border-white/10 cursor-pointer hover:bg-white/10 transition-all flex items-center" onClick={() => {
+                        window.dispatchEvent(new CustomEvent('openCreator', { detail: { creatorId: artist.id } }));
+                        setShowSearchResults(false);
+                        setSearchQuery('');
+                      }}>
+                        <div className="w-12 h-12 rounded-full overflow-hidden bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
+                          {artist.avatar_url || artist.avatarUrl ? <img src={artist.avatar_url || artist.avatarUrl} className="w-full h-full object-cover" /> : <span className="text-white font-medium">{(artist.username||artist.fullName||artist.name||'A').charAt(0)}</span>}
+                        </div>
+                        <div className="flex-1 min-w-0 ml-3">
+                          <h4 className="text-white font-medium truncate">{artist.fullName || artist.username || artist.name}</h4>
+                          <p className="text-gray-400 text-sm truncate">@{artist.username || artist.handle || ''}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1049,24 +1140,43 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
           </div>
         )}
 
-        {/* Main Content - New Layout */}
-        {!showSearchResults && !selectedPlaylist && !selectedMood && (
+  {/* Main Content - New Layout */}
+  {!effectiveShowSearchResults && !selectedPlaylist && !selectedMood && (
           <div className="space-y-4">
-            {/* 1. Recently Played */}
-            <RecentlyPlayed 
-              onPlay={(song) => playSong(song)} 
-              onToggleFavorite={toggleLike}
-              likedIds={likedIds}
-            />
-            
-            {/* 2. Mood Vibes (Horizontal - Full Width) */}
-            <MoodRecommendations />
-            
-            {/* 3. Recommendations Section (Songs, Albums, Playlists) */}
-            <RecommendationsSection />
-            
-            {/* 4. Trending Section (Songs, Albums, Playlists with Filters) */}
-            <TrendingSection />
+            {selectedCreator ? (
+              <div>
+                <div className="flex items-center mb-3">
+                  <Button variant="ghost" size="sm" onClick={() => setSelectedCreator(null)} className="text-gray-400 hover:text-white mr-2">
+                    <ArrowLeft className="w-4 h-4" />
+                  </Button>
+                  <h3 className="text-lg font-semibold text-white">Creator</h3>
+                </div>
+                <CreatorDetail
+                  creatorId={selectedCreator}
+                  onPlay={(s) => playSong(s)}
+                  onAddToQueue={(s) => addToQueue(s)}
+                  onToggleLike={(s) => toggleLike(s)}
+                />
+              </div>
+            ) : (
+              <>
+                {/* 1. Recently Played */}
+                <RecentlyPlayed 
+                  onPlay={(song) => playSong(song)} 
+                  onToggleFavorite={toggleLike}
+                  likedIds={likedIds}
+                />
+                
+                {/* 2. Mood Vibes (Horizontal - Full Width) */}
+                <MoodRecommendations />
+                
+                {/* 3. Recommendations Section (Songs, Albums, Playlists) */}
+                <RecommendationsSection />
+                
+                {/* 4. Trending Section (Songs, Albums, Playlists with Filters) */}
+                <TrendingSection />
+              </>
+            )}
           </div>
         )}
       </main>

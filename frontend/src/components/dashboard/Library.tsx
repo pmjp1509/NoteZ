@@ -131,6 +131,18 @@ export function Library({ onPlay, onPlaylistSelect }: LibraryProps) {
     return () => window.removeEventListener('favoritesChanged', handler as EventListener);
   }, []);
 
+  // Listen for follow changes to refresh the followed creators list
+  useEffect(() => {
+    const handler = (event: CustomEvent) => {
+      const token = localStorage.getItem('token');
+      if (token) {
+        fetchFollowedCreators(token).catch((e) => console.error('Error refreshing followed creators:', e));
+      }
+    };
+    window.addEventListener('followChanged', handler as EventListener);
+    return () => window.removeEventListener('followChanged', handler as EventListener);
+  }, []);
+
   // Remove ensureFavoritesExists - favorites playlist creation is now handled by the favorites API via ensure_favorites_playlist RPC
 
   const fetchLibraryData = async () => {
@@ -433,7 +445,6 @@ export function Library({ onPlay, onPlaylistSelect }: LibraryProps) {
                   {playlist.description && <p className="text-gray-400 text-sm truncate">{playlist.description}</p>}
                   {!isFav && (
                     <div className="flex items-center space-x-2 text-xs">
-                      <span className="text-gray-500">{playlist.songCount} songs</span>
                       <span
                         className={`px-2 py-1 rounded-full text-xs ${
                           playlist.isPublic
@@ -509,6 +520,7 @@ export function Library({ onPlay, onPlaylistSelect }: LibraryProps) {
           <div
             key={creator.id}
             className="flex items-center space-x-3 p-3 bg-white/5 rounded-lg border border-white/10 hover:bg-white/10 transition-colors group cursor-pointer"
+            onClick={() => window.dispatchEvent(new CustomEvent('openCreator', { detail: { creatorId: creator.id } }))}
           >
             <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
               {creator.avatarUrl ? (
@@ -524,7 +536,7 @@ export function Library({ onPlay, onPlaylistSelect }: LibraryProps) {
               <p className="text-gray-400 text-sm truncate">@{creator.username}</p>
               {creator.bio && <p className="text-gray-500 text-xs truncate">{creator.bio}</p>}
             </div>
-            <Button size="sm" variant="ghost" className="text-gray-400 hover:text-white p-2 rounded-lg transition-all">
+            <Button size="sm" variant="ghost" className="text-gray-400 hover:text-white p-2 rounded-lg transition-all" onClick={(e) => e.stopPropagation()}>
               <MoreHorizontal className="w-4 h-4" />
             </Button>
           </div>

@@ -86,6 +86,26 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
+// Best-effort auth: attaches req.user if valid token present; otherwise continues unauthenticated
+const tryAuthenticate = async (req, _res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token || token.split('.').length !== 3) {
+    return next();
+  }
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (!error && user) {
+      const { data: dbUser } = await supabase
+        .from('users')
+        .select('id, username')
+        .eq('id', user.id)
+        .maybeSingle();
+      req.user = { id: user.id, email: user.email, username: dbUser?.username };
+    }
+  } catch {}
+  return next();
+};
+
 // Get current user profile
 router.get('/me', authenticateToken, async (req, res) => {
   try {
@@ -626,30 +646,31 @@ router.post('/follow/:creatorId', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'Content creator not found' });
     }
 
-    // Check if already following
+    // Check if already following (user_follows table uses followed_id)
     const { data: existingFollow } = await supabase
-      .from('creator_follows')
+      .from('user_follows')
       .select('id')
       .eq('follower_id', req.user.id)
-      .eq('creator_id', creatorId)
+      .eq('followed_id', creatorId)
       .maybeSingle();
 
     if (existingFollow) {
       return res.status(400).json({ error: 'Already following this creator' });
     }
 
-    // Follow creator
+    // Follow creator (insert into user_follows.followed_id)
     const { data: follow, error: followError } = await supabase
-      .from('creator_follows')
+      .from('user_follows')
       .insert({
         follower_id: req.user.id,
-        creator_id: creatorId
+        followed_id: creatorId
       })
       .select()
       .single();
 
     if (followError) {
-      return res.status(500).json({ error: 'Failed to follow creator' });
+      console.error('Follow DB error:', JSON.stringify(followError, Object.getOwnPropertyNames(followError), 2));
+      return res.status(500).json({ error: 'Failed to follow creator', details: followError });
     }
 
     // Create notification for creator
@@ -667,14 +688,15 @@ router.post('/follow/:creatorId', authenticateToken, async (req, res) => {
       message: 'Successfully followed creator',
       follow: {
         id: follow.id,
-        creatorId: follow.creator_id,
+        creatorId: follow.followed_id,
         createdAt: follow.created_at
       }
     });
 
   } catch (error) {
     console.error('Follow creator error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    try { console.error('Follow creator error (stringified):', JSON.stringify(error, Object.getOwnPropertyNames(error), 2)); } catch (e) { console.error('Failed to stringify follow error', e); }
+    res.status(500).json({ error: 'Internal server error', details: String(error) });
   }
 });
 
@@ -684,19 +706,124 @@ router.delete('/follow/:creatorId', authenticateToken, async (req, res) => {
     const { creatorId } = req.params;
 
     const { error } = await supabase
-      .from('creator_follows')
+      .from('user_follows')
       .delete()
       .eq('follower_id', req.user.id)
-      .eq('creator_id', creatorId);
+      .eq('followed_id', creatorId);
 
     if (error) {
-      return res.status(500).json({ error: 'Failed to unfollow creator' });
+      console.error('Unfollow DB error:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+      return res.status(500).json({ error: 'Failed to unfollow creator', details: error });
     }
 
     res.json({ message: 'Successfully unfollowed creator' });
 
   } catch (error) {
     console.error('Unfollow creator error:', error);
+    try { console.error('Unfollow creator error (stringified):', JSON.stringify(error, Object.getOwnPropertyNames(error), 2)); } catch (e) { console.error('Failed to stringify unfollow error', e); }
+    res.status(500).json({ error: 'Internal server error', details: String(error) });
+  }
+});
+
+// Get follow status for a creator (does the current user follow them?)
+router.get('/follow/status/:creatorId', authenticateToken, async (req, res) => {
+  try {
+    const { creatorId } = req.params;
+    if (!req.user || !req.user.id) return res.status(401).json({ error: 'Authentication required' });
+
+    const { data, error } = await supabase
+      .from('user_follows')
+      .select('id')
+      .eq('follower_id', req.user.id)
+      .eq('followed_id', creatorId)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Follow status DB error:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+      return res.status(500).json({ error: 'Failed to get follow status', details: error });
+    }
+
+    res.json({ isFollowing: !!data });
+  } catch (error) {
+    console.error('Follow status error:', error);
+    try { console.error('Follow status error (stringified):', JSON.stringify(error, Object.getOwnPropertyNames(error), 2)); } catch (e) { console.error('Failed to stringify follow status error', e); }
+    res.status(500).json({ error: 'Internal server error', details: String(error) });
+  }
+});
+
+// Creator public endpoints: top songs, albums, playlists
+router.get('/creators/:id/top-songs', tryAuthenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { limit = 5 } = req.query;
+
+    const { data: songs, error } = await supabase
+      .from('songs')
+      .select('id, title, artist, movie, audio_url, cover_url, created_at')
+      .eq('creator_id', id)
+      .eq('is_public', true)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.error('Error getting creator songs:', error);
+      return res.status(500).json({ error: 'Failed to get creator songs' });
+    }
+
+    res.json({ songs });
+  } catch (error) {
+    console.error('Get creator songs error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/creators/:id/albums', tryAuthenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { limit = 10 } = req.query;
+
+    const { data: albums, error } = await supabase
+      .from('albums')
+      .select('id, title, description, cover_url, total_songs, total_listens, created_at')
+      .eq('creator_id', id)
+      .eq('is_public', true)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.error('Error getting creator albums:', error);
+      return res.status(500).json({ error: 'Failed to get creator albums' });
+    }
+
+    res.json({ albums });
+  } catch (error) {
+    console.error('Get creator albums error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/creators/:id/playlists', tryAuthenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { limit = 10 } = req.query;
+
+    const { data: playlists, error } = await supabase
+      .from('playlists')
+      .select('id, name, description, cover_url, created_at')
+      .eq('creator_id', id)
+      .eq('is_public', true)
+      .is('is_favorites', false)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.error('Error getting creator playlists:', error);
+      return res.status(500).json({ error: 'Failed to get creator playlists' });
+    }
+
+    res.json({ playlists });
+  } catch (error) {
+    console.error('Get creator playlists error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -704,20 +831,30 @@ router.delete('/follow/:creatorId', authenticateToken, async (req, res) => {
 // Get user's followed creators
 router.get('/following', authenticateToken, async (req, res) => {
   try {
+    // Fetch followed creator IDs, then fetch their user profiles
     const { data: follows, error } = await supabase
-      .from('creator_follows')
-      .select(`
-        creator:users!creator_follows_creator_id_fkey(id, username, full_name, avatar_url, bio)
-      `)
+      .from('user_follows')
+      .select('followed_id')
       .eq('follower_id', req.user.id);
 
     if (error) {
       return res.status(500).json({ error: 'Failed to fetch followed creators' });
     }
 
-    res.json({
-      creators: follows.map(f => f.creator)
-    });
+    const ids = (follows || []).map(f => f.followed_id).filter(Boolean);
+    if (ids.length === 0) return res.json({ creators: [] });
+
+    const { data: users, error: usersError } = await supabase
+      .from('users')
+      .select('id, username, full_name, avatar_url, bio')
+      .in('id', ids);
+
+    if (usersError) {
+      console.error('Error fetching creator profiles:', usersError);
+      return res.status(500).json({ error: 'Failed to fetch creator profiles' });
+    }
+
+    res.json({ creators: users || [] });
 
   } catch (error) {
     console.error('Get followed creators error:', error);

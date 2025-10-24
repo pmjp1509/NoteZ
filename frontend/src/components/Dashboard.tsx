@@ -26,6 +26,7 @@ export default function Dashboard() {
   
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SongItem[]>([]);
+  const [artistResults, setArtistResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
   
@@ -100,6 +101,14 @@ export default function Dashboard() {
       const mapped: SongItem[] = await Promise.all((data.songs || []).map(normalizeSongItem));
       setSearchResults(mapped);
       setShowSearchResults(true);
+      // Also fetch matching creators/artists so MainDashboard can render them
+      try {
+        const artists = await apiClient.get(`/api/users/search?q=${encodeURIComponent(searchQuery)}`);
+        setArtistResults(artists.creators || artists.users || artists.items || []);
+      } catch (e) {
+        console.warn('Failed to fetch artist search results', e);
+        setArtistResults([]);
+      }
     } catch (error) {
       console.error('Search failed:', error);
       setSearchResults([]);
@@ -392,6 +401,8 @@ export default function Dashboard() {
             showSearchResults,
             onSearch: handleSearch,
             onClear: clearSearch,
+            artistResults,
+            setArtistResults,
           }}
         />
       </main>

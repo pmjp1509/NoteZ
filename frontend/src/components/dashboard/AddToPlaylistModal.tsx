@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Button } from '../ui/button';
 import { Card } from '../ui/card';
-import { supabase } from '../../config/supabase';//frontend\src\config\supabase.ts  frontend\src\components\dashboard\AddToPlaylistModal.tsx
+// Use fetch to call backend API endpoints instead of supabase client helper here
 
 interface Playlist {
   id: string;
@@ -30,12 +30,20 @@ export const AddToPlaylistModal = ({ isOpen, onClose, songId, onSuccess }: AddTo
   }, [isOpen]);
 
   const fetchPlaylists = async () => {
+    setLoading(true);
     try {
-      const { data: playlistsData, error } = await supabase.get('/api/playlists/me');
-      
-      if (error) throw error;
-      
-      setPlaylists(playlistsData.playlists);
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:3001/api/playlists/me', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) throw new Error(`Failed to fetch playlists: ${response.status}`);
+
+      const playlistsData = await response.json();
+
+      setPlaylists(playlistsData.playlists || playlistsData || []);
     } catch (err) {
       setError('Failed to load playlists');
       console.error('Error fetching playlists:', err);
@@ -47,12 +55,21 @@ export const AddToPlaylistModal = ({ isOpen, onClose, songId, onSuccess }: AddTo
   const addToPlaylist = async (playlistId: string) => {
     try {
       setLoading(true);
-      const { error } = await supabase.post(`/api/playlists/${playlistId}/songs`, {
-        songId
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:3001/api/playlists/${playlistId}/songs`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ songId })
       });
-      
-      if (error) throw error;
-      
+
+      if (!response.ok) {
+        const errBody = await response.text().catch(() => '');
+        throw new Error(`Failed to add to playlist: ${response.status} ${errBody}`);
+      }
+
       onSuccess();
       onClose();
     } catch (err) {
