@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Button } from '../ui/button';
 import { Card } from '../ui/card';
-import { supabase } from '../../config/supabase';
+import { supabase } from '../../config/supabase';//frontend\src\config\supabase.ts  frontend\src\components\dashboard\AddToPlaylistModal.tsx
 
 interface Playlist {
   id: string;
@@ -22,7 +22,6 @@ export const AddToPlaylistModal = ({ isOpen, onClose, songId, onSuccess }: AddTo
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { supabase } = useSupabase();
 
   useEffect(() => {
     if (isOpen) {

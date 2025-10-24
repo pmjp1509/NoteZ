@@ -63,6 +63,8 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
   const [moodSongs, setMoodSongs] = useState<PlaylistSong[]>([]);
   const [isLoadingMoodSongs, setIsLoadingMoodSongs] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Flag ref to mark a user-play request so the loader effect knows to attempt play
+  const playRequestedRef = useRef<boolean>(false);
   const { toasts, removeToast, showFavoriteAdded, showFavoriteRemoved, showError } = useToast();
 
   useEffect(() => {
@@ -72,10 +74,10 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
         console.log('[MainDashboard] fetching initial songs from backend');
         const response = await fetch(`http://localhost:3001/api/songs?limit=20`);
         const data = await response.json();
-        const mapped: SongItem[] = (data.songs || []).map(normalizeSongItem);
+        const mapped: SongItem[] = await Promise.all((data.songs || []).map(normalizeSongItem));
         if (mounted && mapped.length) {
           setCurrentSong(mapped[0]);
-          console.log('[MainDashboard] initial song:', mapped[0]);
+          console.log('[MainDashboard] initial song name:', mapped[0].name, 'obj:', mapped[0]);
         }
       } catch (e) {
         console.error('[MainDashboard] initial songs fetch error', e);
@@ -155,7 +157,24 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
 
       if (response.ok) {
         const data = await response.json();
-        setPlaylistSongs(data.songs || []);
+          // Normalize all songs to ensure fresh URLs
+          const normalizedSongs = await Promise.all((data.songs || []).map(song => normalizeSongItem(song)));
+          console.log('[MainDashboard] Loaded playlist songs (normalized):', normalizedSongs);
+          // Convert normalized SongItem into the PlaylistSong shape UI expects (title, artist, movie...)
+          const playlistEntries: PlaylistSong[] = normalizedSongs
+            .filter(s => s.audioUrl)
+            .map(s => ({
+              id: s.id || s.path,
+              title: s.name,
+              artist: '',
+              movie: s.movie || '',
+              audioUrl: s.audioUrl,
+              coverUrl: s.coverUrl || ''
+            }));
+
+          setPlaylistSongs(playlistEntries);
+        } else {
+          console.error('[MainDashboard] Failed to fetch playlist songs:', response.status);
       }
     } catch (error) {
       console.error('Failed to fetch playlist songs:', error);
@@ -170,12 +189,55 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
   };
 
   useEffect(() => {
-    if (!audioRef.current || !currentSong?.audioUrl) return;
-    audioRef.current.src = currentSong.audioUrl;
-    audioRef.current.load();
-    audioRef.current.volume = volume / 100;
-    console.log('[MainDashboard] audio src set to currentSong');
-  }, [currentSong?.audioUrl]);
+  const loadAudio = async () => {
+    if (!audioRef.current || !currentSong) return;
+
+    try {
+      // If this was a play request from playSong (we already normalized before setting currentSong)
+      if (playRequestedRef.current && currentSong.audioUrl) {
+        console.log('[MainDashboard] (playRequested) Setting audio source to:', currentSong.audioUrl);
+        audioRef.current.src = currentSong.audioUrl;
+        audioRef.current.load();
+        audioRef.current.volume = volume / 100;
+        try {
+          await audioRef.current.play();
+          setIsPlaying(true);
+        } catch (playError) {
+          console.error('[MainDashboard] Failed to play after request:', playError);
+          setIsPlaying(false);
+        }
+        playRequestedRef.current = false;
+        return;
+      }
+
+      // Normal load: re-normalize the song to get fresh URLs if needed
+      const normalizedSong = await normalizeSongItem(currentSong);
+      if (!normalizedSong.audioUrl) {
+        console.error('[MainDashboard] No valid audio URL found for song:', currentSong);
+        return;
+      }
+
+      console.log('[MainDashboard] Setting audio source to:', normalizedSong.audioUrl);
+      audioRef.current.src = normalizedSong.audioUrl;
+      audioRef.current.load();
+      audioRef.current.volume = volume / 100;
+
+      if (isPlaying) {
+        try {
+          await audioRef.current.play();
+        } catch (playError) {
+          console.error('[MainDashboard] Failed to auto-play:', playError);
+          setIsPlaying(false);
+        }
+      }
+    } catch (error) {
+      console.error('[MainDashboard] Error loading audio:', error);
+      setIsPlaying(false);
+    }
+  };
+
+  loadAudio();
+}, [currentSong?.id, volume]);
 
   useEffect(() => {
     if (!audioRef.current) {
@@ -205,26 +267,39 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
     };
   }, []);
 
-  const playSong = (song: SongItem) => {
+  const playSong = async (song: SongItem) => {
     if (!audioRef.current) return;
-    if (currentSong?.audioUrl !== song.audioUrl) {
-      setCurrentSong(song);
-      audioRef.current.src = song.audioUrl;
+
+    try {
+      // Always re-normalize the song to ensure fresh URLs
+      const normalizedSong = await normalizeSongItem(song);
+      if (!normalizedSong.audioUrl) {
+        console.error('[MainDashboard] No valid audio URL found for song:', song);
+        return;
+      }
+
+      // Only update if it's a different song or URL
+      if (currentSong?.id !== normalizedSong.id || currentSong?.audioUrl !== normalizedSong.audioUrl) {
+        console.log('[MainDashboard] Setting new song name (play request):', normalizedSong.name, 'id:', normalizedSong.id);
+        // mark that a user requested play so the loadAudio effect will attempt to play after setting src
+        playRequestedRef.current = true;
+        setCurrentSong(normalizedSong);
+      }
+
+      // set volume for next playback
+      audioRef.current.volume = volume / 100;
+
+      // push recently played immediately
+      pushRecentlyPlayed(normalizedSong);
+
+      // track play in database (fire-and-forget)
+      if (normalizedSong.id) {
+        trackSongPlay(normalizedSong.id).catch(() => {});
+      }
+    } catch (error) {
+      console.error('[MainDashboard] Failed to play song:', error);
+      setIsPlaying(false);
     }
-    audioRef.current.volume = volume / 100;
-    audioRef.current
-      .play()
-      .then(() => {
-        setIsPlaying(true);
-        // Track play in database
-        trackSongPlay(song.id);
-      })
-      .catch((e) => {
-        console.error('[MainDashboard] audio play() failed', e);
-        setIsPlaying(false);
-      });
-    // Track recently played locally
-    pushRecentlyPlayed(song);
   };
 
   // Track song play in listening history
@@ -371,6 +446,53 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
     };
   }, []);
 
+  // Listen for global UI events from other components (recommendations/trending)
+  useEffect(() => {
+    const handleAddToQueue = (event: CustomEvent) => {
+      const song = event.detail as SongItem;
+      if (song) addToQueue(song);
+    };
+
+    const handleOpenAddToPlaylist = (event: CustomEvent) => {
+      const song = event.detail as SongItem;
+      if (song) addToPlaylist(song);
+    };
+
+    const handleToggleLike = (event: CustomEvent) => {
+      const song = event.detail as SongItem;
+      if (song) toggleLike(song);
+    };
+
+    window.addEventListener('addToQueue', handleAddToQueue as EventListener);
+    window.addEventListener('openAddToPlaylist', handleOpenAddToPlaylist as EventListener);
+    window.addEventListener('toggleLike', handleToggleLike as EventListener);
+
+    return () => {
+      window.removeEventListener('addToQueue', handleAddToQueue as EventListener);
+      window.removeEventListener('openAddToPlaylist', handleOpenAddToPlaylist as EventListener);
+      window.removeEventListener('toggleLike', handleToggleLike as EventListener);
+    };
+  }, [queue, likedIds]);
+
+  // Listen for showLyrics event dispatched by BottomPlayer
+  useEffect(() => {
+    const handleShowLyrics = (e: CustomEvent) => {
+      const { lyrics, title, artist } = e.detail || {};
+      // Show lyrics in the middle of the dashboard by setting selectedMood-like state
+      setSelectedMood({ label: 'Lyrics', category: 'lyrics', emoji: '🎤', color: 'from-purple-500 to-pink-500' });
+      setMoodSongs([{ id: 'lyrics', title: title || '', artist: artist || '', movie: '', audioUrl: '', coverUrl: '', } as any]);
+      // Replace the moodSongs content to contain lyrics as a single entry; MainDashboard will render accordingly
+      // Store lyrics on the currentSong object to render when selectedMood is 'Lyrics'
+      if (currentSong) {
+        // attach lyrics temporarily
+        currentSong.lyrics = lyrics || currentSong.lyrics;
+      }
+    };
+
+    window.addEventListener('showLyrics', handleShowLyrics as EventListener);
+    return () => window.removeEventListener('showLyrics', handleShowLyrics as EventListener);
+  }, [currentSong]);
+
   const fetchMoodSongs = async (category: string) => {
     setIsLoadingMoodSongs(true);
     try {
@@ -481,7 +603,7 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
       const params = new URLSearchParams({ search: searchQuery });
       const response = await fetch(`http://localhost:3001/api/songs?${params}`);
       const data = await response.json();
-      const mapped: SongItem[] = (data.songs || []).map(normalizeSongItem);
+      const mapped: SongItem[] = await Promise.all((data.songs || []).map(normalizeSongItem));
       setSearchResults(mapped);
       setShowSearchResults(true);
     } catch (error) {
@@ -825,6 +947,15 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
               <div className="flex items-center justify-center py-8">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500"></div>
               </div>
+            ) : (selectedMood.category === 'lyrics') ? (
+              // Lyrics special view
+              <div className="p-6 bg-white/5 rounded-lg border border-white/10">
+                <h3 className="text-lg font-semibold text-white">{currentSong?.name}</h3>
+                <p className="text-sm text-gray-400 mb-4">{currentSong?.movie}</p>
+                <div className="prose prose-invert max-h-[60vh] overflow-y-auto text-sm text-gray-300">
+                  {currentSong?.lyrics || 'Lyrics not available.'}
+                </div>
+              </div>
             ) : moodSongs.length === 0 ? (
               <div className="text-center py-8">
                 <p className="text-gray-400">No songs found for this mood</p>
@@ -948,12 +1079,81 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
         progressPct={progressPct}
         duration={duration}
         volumePct={volume}
+        queueLength={queue.length}
         onTogglePlay={togglePlay}
         onSeekPct={seekToPct}
         onVolumePct={setVolumePct}
         onToggleFavorite={toggleCurrentFavorite}
         isFavorite={isCurrentFavorite}
         onReplay={handleReplay}
+        onToggleQueue={() => {
+          // Toggle showing queued songs in the main area
+          // If selectedPlaylist is null, show a temporary "Queue" view by setting playlistSongs to queue
+          if (queue.length === 0) return;
+          setSelectedPlaylist({ id: 'queue', name: 'Queue', description: 'Up next', songCount: queue.length, coverUrl: '', creator: '', isPublic: false } as any);
+          // Convert SongItem queue to PlaylistSong entries
+          const qSongs = queue.map(q => ({ id: q.id || q.path, title: q.name, artist: q.movie || '', movie: q.movie || '', audioUrl: q.audioUrl || '', coverUrl: q.coverUrl || '' }));
+          setPlaylistSongs(qSongs);
+        }}
+        onAddToPlaylist={() => {
+          if (!currentSong) return;
+          setSelectedSong(currentSong);
+          setShowAddToPlaylist(true);
+        }}
+        onShowLyrics={() => {
+          // Show lyrics panel in middle of dashboard: reuse existing selectedMood area by setting a state
+          // Always allow opening lyrics; if missing, show "Lyrics not available"
+          const lyricsText = currentSong?.lyrics || null;
+          window.dispatchEvent(new CustomEvent('showLyrics', { detail: { lyrics: lyricsText, title: currentSong?.name || '', artist: currentSong?.movie || '' } }));
+        }}
+        onPrev={() => {
+          // Previous: if playback > 3s -> restart current song, else play previous in queue if available
+          const audio = audioRef.current;
+          if (!audio) return;
+          try {
+            if ((audio.currentTime || 0) > 3) {
+              audio.currentTime = 0;
+              audio.play().catch(() => {});
+              return;
+            }
+            // find current index in queue
+            const idx = queue.findIndex(q => (q.id || q.path) === (currentSong?.id || currentSong?.path));
+            if (idx > 0) {
+              const prevSong = queue[idx - 1];
+              playSong(prevSong);
+            } else {
+              // no previous in queue -> restart
+              audio.currentTime = 0;
+              audio.play().catch(() => {});
+            }
+          } catch (e) {
+            console.error('onPrev failed', e);
+          }
+        }}
+        onNext={() => {
+          // Next: play next song in queue if available
+          const idx = queue.findIndex(q => (q.id || q.path) === (currentSong?.id || currentSong?.path));
+          if (idx === -1) {
+            // current song isn't in the queue (random song) -> play first in queue if present
+            if (queue.length > 0) playSong(queue[0]);
+          } else if (idx >= 0 && idx < queue.length - 1) {
+            const nextSong = queue[idx + 1];
+            playSong(nextSong);
+          } else if (currentSong == null && queue.length > 0) {
+            // nothing playing, start from first
+            playSong(queue[0]);
+          } else {
+            // at end of queue or no-op
+          }
+        }}
+        onChangeRepeatMode={(mode) => {
+          // Map mode to isRepeating flag and behavior
+          if (mode === 'one') {
+            setIsRepeating(true);
+          } else {
+            setIsRepeating(false);
+          }
+        }}
       />
 
       {/* Add to Playlist Dialog */}

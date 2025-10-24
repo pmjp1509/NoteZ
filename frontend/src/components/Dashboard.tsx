@@ -97,7 +97,7 @@ export default function Dashboard() {
     try {
       const params = new URLSearchParams({ search: searchQuery });
       const data = await apiClient.get(`/api/songs?${params}`);
-      const mapped: SongItem[] = (data.songs || []).map(normalizeSongItem);
+      const mapped: SongItem[] = await Promise.all((data.songs || []).map(normalizeSongItem));
       setSearchResults(mapped);
       setShowSearchResults(true);
     } catch (error) {

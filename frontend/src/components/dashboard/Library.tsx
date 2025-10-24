@@ -73,8 +73,15 @@ export function Library({ onPlay, onPlaylistSelect }: LibraryProps) {
 
   // Close menu when clicking outside
   useEffect(() => {
-    const handleClickOutside = () => {
-      if (showPlaylistMenu) setShowPlaylistMenu(null);
+    const handleClickOutside = (e: MouseEvent) => {
+      if (!showPlaylistMenu) return;
+      const target = e.target as Node;
+      // If click is inside the open menu or its button, do nothing
+      const menuEl = document.querySelector(`[data-playlist-menu="${showPlaylistMenu}"]`);
+      if (menuEl && menuEl.contains(target)) return;
+      const btnEl = document.querySelector(`[data-playlist-btn="${showPlaylistMenu}"]`);
+      if (btnEl && btnEl.contains(target)) return;
+      setShowPlaylistMenu(null);
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -449,13 +456,14 @@ export function Library({ onPlay, onPlaylistSelect }: LibraryProps) {
                         e.stopPropagation();
                         setShowPlaylistMenu(showPlaylistMenu === playlist.id ? null : playlist.id);
                       }}
+                      data-playlist-btn={playlist.id}
                       className="text-gray-400 hover:text-white p-2 rounded-lg transition-all"
                     >
                       <MoreHorizontal className="w-4 h-4" />
                     </Button>
 
                     {showPlaylistMenu === playlist.id && (
-                      <div className="absolute right-0 top-10 z-50 bg-black/90 border border-white/20 rounded-lg shadow-lg min-w-[120px]">
+                      <div data-playlist-menu={playlist.id} className="absolute right-0 top-10 z-50 bg-black/90 border border-white/20 rounded-lg shadow-lg min-w-[120px]">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();

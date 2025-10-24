@@ -16,7 +16,7 @@ export function CommunityPlaylists({ onPlay }: { onPlay?: (song: SongItem) => vo
       try {
         const response = await fetch(`http://localhost:3001/api/songs?limit=6`);
         const data = await response.json();
-        const mapped: SongItem[] = (data.songs || []).map(normalizeSongItem);
+        const mapped: SongItem[] = await Promise.all((data.songs || []).map(normalizeSongItem));
         if (mounted) setSongs(mapped);
       } catch (e) {
         if (!mounted) return;

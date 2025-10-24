@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
-import { Pause, Play, RotateCcw, ListMusic, Volume2, VolumeX, SkipBack, SkipForward, Heart } from 'lucide-react';
+import { Pause, Play, RotateCcw, ListMusic, Volume2, VolumeX, SkipBack, SkipForward, Heart, ListPlus, FileText } from 'lucide-react';
 import type { SongItem } from '@/lib/songs';
 
 export function BottomPlayer({
@@ -17,6 +17,13 @@ export function BottomPlayer({
   onToggleFavorite,
   isFavorite,
   onReplay,
+  onToggleQueue,
+  onAddToPlaylist,
+  onShowLyrics,
+  onChangeRepeatMode,
+  onPrev,
+  onNext,
+  queueLength,
 }: {
   song?: SongItem;
   isPlaying: boolean;
@@ -29,10 +36,25 @@ export function BottomPlayer({
   onToggleFavorite?: () => void;
   isFavorite?: boolean;
   onReplay?: () => void;
+  onToggleQueue?: () => void;
+  onAddToPlaylist?: () => void;
+  onShowLyrics?: () => void;
+  onChangeRepeatMode?: (mode: 'off' | 'one' | 'all') => void;
+  onPrev?: () => void;
+  onNext?: () => void;
+  queueLength?: number;
 }) {
-  const [showLyrics, setShowLyrics] = useState(false);
+  useEffect(() => {
+    // Log incoming song prop for debugging missing title issue
+    if (song) {
+      console.log('[BottomPlayer] Received song prop:', { name: song.name, id: song.id, audioUrl: song.audioUrl });
+    } else {
+      console.log('[BottomPlayer] No song prop received');
+    }
+  }, [song]);
   const [isMuted, setIsMuted] = useState(false);
-  const [isRepeating, setIsRepeating] = useState(false);
+  
+  const [repeatMode, setRepeatMode] = useState<'off' | 'one' | 'all'>('off');
 
   const toggleMute = () => {
     if (isMuted) {
@@ -45,11 +67,12 @@ export function BottomPlayer({
   };
 
   const handleReplayToggle = () => {
-    setIsRepeating(!isRepeating);
-    // If there's an onReplay callback, call it with the new repeat state
-    if (onReplay) {
-      onReplay();
-    }
+    // Cycle repeat modes: off -> one -> all -> off
+    const next = repeatMode === 'off' ? 'one' : repeatMode === 'one' ? 'all' : 'off';
+    setRepeatMode(next);
+    if (onChangeRepeatMode) onChangeRepeatMode(next);
+    // keep compatibility: call onReplay when entering 'one'
+    if (onReplay && next === 'one') onReplay();
   };
 
   return (
@@ -61,6 +84,8 @@ export function BottomPlayer({
             size="icon" 
             variant="ghost" 
             className="w-9 h-9 text-gray-300 hover:text-white hover:bg-white/10 rounded-full transition-all hover:scale-105"
+            onClick={() => { if (onPrev) onPrev(); }}
+            aria-label="Previous"
           >
             <SkipBack className="w-4.5 h-4.5" />
           </Button>
@@ -77,6 +102,8 @@ export function BottomPlayer({
             size="icon" 
             variant="ghost" 
             className="w-9 h-9 text-gray-300 hover:text-white hover:bg-white/10 rounded-full transition-all hover:scale-105"
+            onClick={() => { if (onNext) onNext(); }}
+            aria-label="Next"
           >
             <SkipForward className="w-4.5 h-4.5" />
           </Button>
@@ -95,8 +122,8 @@ export function BottomPlayer({
               <div className="absolute inset-0 bg-black/20 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-medium text-white truncate">{song?.name || 'Select a song'}</p>
-              <p className="text-xs text-gray-300 truncate">{song?.movie || 'Unknown Artist'}</p>
+              <p className="text-sm font-medium text-white truncate">{song?.name || (song as any)?.title || 'Select a song'}</p>
+              <p className="text-xs text-gray-300 truncate">{song?.movie || (song as any)?.artist || 'Unknown Artist'}</p>
             </div>
           </div>
 
@@ -121,10 +148,33 @@ export function BottomPlayer({
 
           {/* Control Buttons */}
           <div className="flex items-center gap-2">
-            {/* Favorite toggle */}
-            <Button 
-              size="icon" 
-              variant="ghost" 
+            {/* New Right-side Buttons: Loop, Queue, Like, Add to Playlist, Lyrics */}
+            {/* Loop (cycles off -> repeat one -> repeat all) */}
+            <Button
+              size="icon"
+              variant="ghost"
+              className={`w-10 h-10 rounded-full transition-all ${repeatMode !== 'off' ? 'text-purple-400 bg-purple-600/10 hover:bg-purple-600/20' : 'text-gray-300 hover:text-white hover:bg-white/10'}`}
+              onClick={handleReplayToggle}
+              aria-label={repeatMode === 'off' ? 'Turn on repeat (one)' : repeatMode === 'one' ? 'Switch to repeat all' : 'Turn off repeat'}
+            >
+              <RotateCcw className="w-5 h-5" />
+            </Button>
+
+            {/* Queue - toggle queue panel in middle; highlight when queue has items */}
+            <Button
+              size="icon"
+              variant="ghost"
+              className={`w-10 h-10 rounded-full transition-all ${queueLength && queueLength > 0 ? 'text-purple-300 bg-purple-700/10 hover:bg-purple-700/20' : 'text-gray-300 hover:text-white hover:bg-white/10'}`}
+              onClick={() => onToggleQueue && onToggleQueue()}
+              aria-label="Show queue"
+            >
+              <ListMusic className="w-5 h-5" />
+            </Button>
+
+            {/* Like */}
+            <Button
+              size="icon"
+              variant="ghost"
               className={`w-10 h-10 rounded-full transition-all ${isFavorite ? 'text-pink-400 bg-pink-600/10 hover:bg-pink-600/20' : 'text-gray-300 hover:text-white hover:bg-white/10'}`}
               disabled={!song?.id}
               onClick={() => onToggleFavorite?.()}
@@ -132,33 +182,26 @@ export function BottomPlayer({
             >
               <Heart className={`w-5 h-5 ${ isFavorite ? 'fill-pink-500' : '' }`} />
             </Button>
-            <Button 
-              size="icon" 
-              variant="ghost" 
-              className="w-10 h-10 text-gray-300 hover:text-white hover:bg-white/10 rounded-full transition-all"
-              onClick={() => song?.lyrics ? setShowLyrics(!showLyrics) : null}
-              disabled={!song?.lyrics}
-              aria-label={song?.lyrics ? (showLyrics ? 'Hide lyrics' : 'Show lyrics') : 'No lyrics available'}
-            >
-              <ListMusic className="w-5 h-5" />
-            </Button>
-            
-            <Button 
-              size="icon" 
-              variant="ghost" 
-              className={`w-10 h-10 rounded-full transition-all ${isRepeating ? 'text-purple-400 bg-purple-600/10 hover:bg-purple-600/20' : 'text-gray-300 hover:text-white hover:bg-white/10'}`}
-              onClick={handleReplayToggle}
-              aria-label={isRepeating ? 'Turn off repeat' : 'Turn on repeat'}
-            >
-              <RotateCcw className={`w-5 h-5 ${isRepeating ? 'text-purple-400' : ''}`} />
-            </Button>
 
-            <Button 
-              size="icon" 
-              variant="ghost" 
-              className="w-10 h-10 text-gray-300 hover:text-white hover:bg-white/10 rounded-full transition-all"
+            {/* Add to Playlist (use same style as search results) */}
+            <button
+              aria-label="Add to playlist"
+              className="w-9 h-9 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition"
+              onClick={() => onAddToPlaylist && onAddToPlaylist()}
+              disabled={!song?.id}
             >
-              <ListMusic className="w-5 h-5" />
+              <ListPlus className="w-5 h-5" />
+            </button>
+
+            {/* Lyrics - always enabled; MainDashboard will show 'not available' if missing */}
+            <Button
+              size="icon"
+              variant="ghost"
+              className={`w-10 h-10 rounded-full transition-all ${song?.lyrics ? 'text-cyan-300 bg-cyan-700/10 hover:bg-cyan-700/20' : 'text-gray-300 hover:text-white hover:bg-white/10'}`}
+              onClick={() => onShowLyrics && onShowLyrics()}
+              aria-label={song?.lyrics ? 'Show lyrics' : 'Lyrics not available'}
+            >
+              <FileText className="w-5 h-5" />
             </Button>
           </div>
 
@@ -188,14 +231,7 @@ export function BottomPlayer({
 
         
 
-        {/* Lyrics Panel (Expandable) */}
-        {showLyrics && (
-          <div className="mt-4 p-4 bg-white/5 rounded-lg border border-white/10 backdrop-blur-sm">
-            <div className="text-center text-sm text-gray-300">
-              {song?.lyrics || "Lyrics not available for this song"}
-            </div>
-          </div>
-        )}
+        {/* Lyrics handled in main dashboard */}
       </div>
     </div>
   );

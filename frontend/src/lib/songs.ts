@@ -11,19 +11,80 @@ export type SongItem = {
 };
 
 async function getSignedUrl(bucket: string, path: string): Promise<string> {
-  const { data } = await supabase.storage.from(bucket).createSignedUrl(path, 3600);
-  return data?.signedUrl ?? "";
+  try {
+    if (!path) return "";
+    
+    // If it's already a full URL and not expired, return it
+    if (path.startsWith('http') && !path.includes('?token=')) {
+      return path;
+    }
+
+    // Clean the path (remove any existing signed URL parameters)
+    const cleanPath = path.split('?')[0];
+    
+    const { data, error } = await supabase.storage.from(bucket).createSignedUrl(cleanPath, 3600);
+    if (error) {
+      console.error('[getSignedUrl] Error:', error);
+      return "";
+    }
+    return data?.signedUrl ?? "";
+  } catch (error) {
+    console.error('[getSignedUrl] Unexpected error:', error);
+    return "";
+  }
 }
 
 // Helper function to normalize song data from different sources
-export function normalizeSongItem(song: any): SongItem {
+export async function normalizeSongItem(song: any): Promise<SongItem> {
+  // If the song has a path but no audioUrl, or the audioUrl is expired, get a new signed URL
+  let audioUrl = song.audioUrl || song.audio_url || "";
+  let coverUrl = song.coverUrl || song.cover_url || "/assets/album-placeholder.jpg";
+
+  if (song.path && (!audioUrl || audioUrl.includes('?token=') || audioUrl.includes('&token='))) {
+    try {
+      const newUrl = await getSignedUrl("songs", song.path);
+      if (newUrl) audioUrl = newUrl;
+    } catch (error) {
+      console.error("Error getting signed URL for song:", error);
+    }
+  }
+
+  // If coverUrl is a storage path, get a signed URL
+  if (coverUrl && coverUrl.startsWith('songs/')) {
+    try {
+      const newCoverUrl = await getSignedUrl("songs", coverUrl);
+      if (newCoverUrl) coverUrl = newCoverUrl;
+    } catch (error) {
+      console.error("Error getting signed URL for cover:", error);
+      coverUrl = "/assets/album-placeholder.jpg";
+    }
+  }
+
   return {
     movie: song.movie || "",
-    name: song.title || song.name || "Unknown",
-    path: song.id ? String(song.id) : (song.path || song.audioUrl || ""),
+    name: (() => {
+      // Prefer explicit title/name fields
+      let n = song.title || song.name || "";
+      if (!n) {
+        // Try to derive from storage path or audioUrl filename
+        const candidate = song.path || song.audioUrl || song.audio_url || "";
+        if (candidate) {
+          try {
+            const parts = candidate.split('/');
+            let last = parts[parts.length - 1] || parts[parts.length - 2] || candidate;
+            last = decodeURIComponent(last);
+            n = last.replace(/\.mp3$/i, '').replace(/[-_]+/g, ' ').trim();
+          } catch (e) {
+            // ignore and fallback
+          }
+        }
+      }
+      return n || "Unknown";
+    })(),
+    path: song.id ? String(song.id) : (song.path || ""),
     id: song.id ? String(song.id) : undefined,
-    coverUrl: song.coverUrl || song.cover_url || "/assets/album-placeholder.jpg",
-    audioUrl: song.audioUrl || song.audio_url || "",
+    coverUrl,
+    audioUrl,
     lyrics: song.lyrics || undefined,
   };
 }

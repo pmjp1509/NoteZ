@@ -88,8 +88,8 @@ export function RecentlyPlayed({
               >
                 <img src={song.coverUrl} alt="cover" className="w-12 h-12 rounded object-cover" />
                 <div className="min-w-0 text-left flex-1" onClick={() => onPlay(song)} style={{ cursor: 'pointer' }}>
-                  <div className="text-white truncate">{song.name}</div>
-                  <div className="text-xs text-muted-foreground truncate">{song.movie}</div>
+                  <div className="text-white truncate">{song.name || (song as any).title || 'Unknown'}</div>
+                  <div className="text-xs text-muted-foreground truncate">{song.movie || (song as any).artist || ''}</div>
                 </div>
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
                   <button

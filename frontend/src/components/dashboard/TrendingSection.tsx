@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Music, Disc3, ListMusic, Play, Maximize2 } from "lucide-react";
+import { Music, Disc3, ListMusic, Play, Maximize2, Plus, Heart } from "lucide-react";
 import { useEffect, useState } from "react";
 import { TrendingModal } from "./TrendingModal";
 
@@ -176,6 +176,54 @@ export function TrendingSection() {
                       {activeTab === 'albums' && `${item.songCount} songs`}
                       {activeTab === 'playlists' && `${item.songCount} songs`}
                     </p>
+                    {activeTab === 'songs' && (
+                      <div className="absolute right-2 bottom-2 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          aria-label="Add to queue"
+                          className="w-8 h-8 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition"
+                          onClick={() => window.dispatchEvent(new CustomEvent('addToQueue', { detail: {
+                            id: item.id,
+                            name: item.title || item.name,
+                            movie: item.artist,
+                            audioUrl: item.audioUrl,
+                            coverUrl: item.coverUrl,
+                            path: item.id
+                          } }))}
+                        >
+                          <Plus className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          aria-label="Add to playlist"
+                          className="w-8 h-8 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition"
+                          onClick={() => window.dispatchEvent(new CustomEvent('openAddToPlaylist', { detail: {
+                            id: item.id,
+                            name: item.title || item.name,
+                            movie: item.artist,
+                            audioUrl: item.audioUrl,
+                            coverUrl: item.coverUrl,
+                            path: item.id
+                          } }))}
+                        >
+                          <ListMusic className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          aria-label="Like"
+                          className="w-8 h-8 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition"
+                          onClick={() => window.dispatchEvent(new CustomEvent('toggleLike', { detail: {
+                            id: item.id,
+                            name: item.title || item.name,
+                            movie: item.artist,
+                            audioUrl: item.audioUrl,
+                            coverUrl: item.coverUrl,
+                            path: item.id
+                          } }))}
+                        >
+                          <Heart className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

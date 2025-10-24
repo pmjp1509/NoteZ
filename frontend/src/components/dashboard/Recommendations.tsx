@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Play, TrendingUp, Music2 } from "lucide-react";
+import { Play, TrendingUp, Music2, ListMusic, Heart, Plus, ListPlus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { type SongItem, normalizeSongItem } from '@/lib/songs';
 
@@ -59,7 +59,7 @@ export function Recommendations({ onPlay }: { onPlay: (song: SongItem) => void }
         // Fallback to regular songs if not logged in or error
         const response = await fetch(`http://localhost:3001/api/songs?limit=5`);
         const data = await response.json();
-        const mapped: SongItem[] = (data.songs || []).map(normalizeSongItem);
+        const mapped: SongItem[] = await Promise.all((data.songs || []).map(normalizeSongItem));
         if (mounted) {
           setItems(mapped.slice(0, 5));
           setBasedOn('popular');
@@ -128,17 +128,31 @@ export function Recommendations({ onPlay }: { onPlay: (song: SongItem) => void }
                   <div className="text-white font-medium truncate group-hover:text-purple-300 transition-colors">{song.name}</div>
                   <div className="text-xs text-muted-foreground truncate">{song.movie}</div>
                 </div>
-                <button
-                  aria-label="Play recommendation"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    song.audioUrl && onPlay(song);
-                  }}
-                  disabled={!song.audioUrl}
-                  className="w-10 h-10 flex items-center justify-center rounded-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 disabled:opacity-50 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                >
-                  <Play className="w-4 h-4 fill-white" />
-                </button>
+                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    aria-label="Add to queue"
+                    className="w-9 h-9 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition"
+                    onClick={() => window.dispatchEvent(new CustomEvent('addToQueue', { detail: song }))}
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+
+                  <button
+                    aria-label="Add to playlist"
+                    className="w-9 h-9 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition"
+                    onClick={() => window.dispatchEvent(new CustomEvent('openAddToPlaylist', { detail: song }))}
+                  >
+                    <ListPlus className="w-5 h-5" />
+                  </button>
+
+                  <button
+                    aria-label="Like"
+                    className="w-9 h-9 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition"
+                    onClick={() => window.dispatchEvent(new CustomEvent('toggleLike', { detail: song }))}
+                  >
+                    <Heart className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>

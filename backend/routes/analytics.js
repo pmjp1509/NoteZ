@@ -4,17 +4,32 @@ const supabase = require('../config/supabase');
 
 const router = express.Router();
 
-// Middleware to verify JWT token
-const authenticateToken = (req, res, next) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  
+// Supabase auth: verify access token and attach user with role
+const authenticateToken = async (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+
   if (!token) {
     return res.status(401).json({ error: 'No token provided' });
   }
 
+  if (token.split('.').length !== 3) {
+    return res.status(400).json({ error: 'Malformed token' });
+  }
+
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-    req.user = decoded;
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error) throw error;
+    if (!user) return res.status(403).json({ error: 'Invalid token' });
+
+    // Fetch role from users table if available
+    const { data: dbUser } = await supabase
+      .from('users')
+      .select('id, role')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    // Normalize req.user to match other routes: { id, email, role }
+    req.user = { id: user.id, email: user.email, role: dbUser?.role };
     next();
   } catch (error) {
     return res.status(403).json({ error: 'Invalid token' });
@@ -32,8 +47,8 @@ const requireCreator = (req, res, next) => {
 // Get creator analytics dashboard
 router.get('/creator', authenticateToken, requireCreator, async (req, res) => {
   try {
-    const { period = '30' } = req.query; // days
-    const userId = req.user.userId;
+  const { period = '30' } = req.query; // days
+  const userId = req.user.id;
 
     // Get creator stats
     const { data: stats, error: statsError } = await supabase
@@ -169,8 +184,8 @@ router.get('/creator', authenticateToken, requireCreator, async (req, res) => {
 // Get song-specific analytics
 router.get('/song/:songId', authenticateToken, requireCreator, async (req, res) => {
   try {
-    const { songId } = req.params;
-    const userId = req.user.userId;
+  const { songId } = req.params;
+  const userId = req.user.id;
 
     // Verify song belongs to creator
     const { data: song, error: songError } = await supabase
@@ -258,8 +273,8 @@ router.get('/song/:songId', authenticateToken, requireCreator, async (req, res) 
 // Track song play (called when user plays a song)
 router.post('/track-play', authenticateToken, async (req, res) => {
   try {
-    const { songId, duration } = req.body;
-    const userId = req.user.userId;
+  const { songId, duration } = req.body;
+  const userId = req.user.id;
 
     if (!songId) {
       return res.status(400).json({ error: 'Song ID is required' });
@@ -322,7 +337,7 @@ router.post('/track-play', authenticateToken, async (req, res) => {
 // Get user listening history
 router.get('/history', authenticateToken, async (req, res) => {
   try {
-    const userId = req.user.userId;
+  const userId = req.user.id;
     const { page = 1, limit = 20 } = req.query;
 
     const offset = (page - 1) * limit;

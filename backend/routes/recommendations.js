@@ -126,7 +126,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
     // Step 4: If not enough recommendations, add popular/trending songs
     if (recommendations.length < limit) {
-      const { data: popularSongs, error: popularError } = await supabase
+      const popularQuery = supabase
         .from('songs')
         .select(`
           id,
@@ -140,12 +140,40 @@ router.get('/', authenticateToken, async (req, res) => {
           song_analytics(play_count)
         `)
         .eq('is_public', true)
-        .not('id', 'in', `(${Array.from(playedSongIds).join(',')})`)
-        .order('created_at', { ascending: false })
+        .order('created_at', { ascending: false });
+
+      // Only exclude played songs if we have some
+      if (playedSongIds.size > 0) {
+        popularQuery.not('id', 'in', `(${Array.from(playedSongIds).join(',')})`);
+      }
+
+      const { data: popularSongs, error: popularError } = await popularQuery
         .limit(limit - recommendations.length);
 
       if (!popularError && popularSongs) {
         recommendations = [...recommendations, ...popularSongs];
+      }
+
+      // If still no songs, try one last time without any filters
+      if (recommendations.length === 0) {
+        const { data: anySongs, error: anyError } = await supabase
+          .from('songs')
+          .select(`
+            id,
+            title,
+            artist,
+            movie,
+            audio_url,
+            cover_url,
+            category_id,
+            song_categories(name, color)
+          `)
+          .eq('is_public', true)
+          .limit(limit);
+
+        if (!anyError && anySongs) {
+          recommendations = anySongs;
+        }
       }
     }
 
