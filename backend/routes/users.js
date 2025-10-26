@@ -641,12 +641,12 @@ router.post('/follow/:creatorId', authenticateToken, async (req, res) => {
       .eq('id', creatorId)
       .eq('role', 'content_creator')
       .single();
-
+    
     if (creatorError || !creator) {
       return res.status(404).json({ error: 'Content creator not found' });
     }
 
-    // Check if already following (user_follows table uses followed_id)
+    // Check if already following
     const { data: existingFollow } = await supabase
       .from('user_follows')
       .select('id')
@@ -657,8 +657,8 @@ router.post('/follow/:creatorId', authenticateToken, async (req, res) => {
     if (existingFollow) {
       return res.status(400).json({ error: 'Already following this creator' });
     }
-
-    // Follow creator (insert into user_follows.followed_id)
+    
+    // Follow creator
     const { data: follow, error: followError } = await supabase
       .from('user_follows')
       .insert({
@@ -669,9 +669,11 @@ router.post('/follow/:creatorId', authenticateToken, async (req, res) => {
       .single();
 
     if (followError) {
-      console.error('Follow DB error:', JSON.stringify(followError, Object.getOwnPropertyNames(followError), 2));
+      console.error('Follow failed:', followError.message);
       return res.status(500).json({ error: 'Failed to follow creator', details: followError });
     }
+
+    console.log('✅ Follow successful');
 
     // Create notification for creator
     await supabase
@@ -694,9 +696,8 @@ router.post('/follow/:creatorId', authenticateToken, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Follow creator error:', error);
-    try { console.error('Follow creator error (stringified):', JSON.stringify(error, Object.getOwnPropertyNames(error), 2)); } catch (e) { console.error('Failed to stringify follow error', e); }
-    res.status(500).json({ error: 'Internal server error', details: String(error) });
+    console.error('Follow error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -712,16 +713,16 @@ router.delete('/follow/:creatorId', authenticateToken, async (req, res) => {
       .eq('followed_id', creatorId);
 
     if (error) {
-      console.error('Unfollow DB error:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
-      return res.status(500).json({ error: 'Failed to unfollow creator', details: error });
+      console.error('Unfollow failed:', error.message);
+      return res.status(500).json({ error: 'Failed to unfollow creator' });
     }
 
+    console.log('✅ Unfollow successful');
     res.json({ message: 'Successfully unfollowed creator' });
 
   } catch (error) {
-    console.error('Unfollow creator error:', error);
-    try { console.error('Unfollow creator error (stringified):', JSON.stringify(error, Object.getOwnPropertyNames(error), 2)); } catch (e) { console.error('Failed to stringify unfollow error', e); }
-    res.status(500).json({ error: 'Internal server error', details: String(error) });
+    console.error('Unfollow error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -739,15 +740,14 @@ router.get('/follow/status/:creatorId', authenticateToken, async (req, res) => {
       .maybeSingle();
 
     if (error) {
-      console.error('Follow status DB error:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
-      return res.status(500).json({ error: 'Failed to get follow status', details: error });
+      console.error('Follow status check failed:', error.message);
+      return res.status(500).json({ error: 'Failed to get follow status' });
     }
 
     res.json({ isFollowing: !!data });
   } catch (error) {
     console.error('Follow status error:', error);
-    try { console.error('Follow status error (stringified):', JSON.stringify(error, Object.getOwnPropertyNames(error), 2)); } catch (e) { console.error('Failed to stringify follow status error', e); }
-    res.status(500).json({ error: 'Internal server error', details: String(error) });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

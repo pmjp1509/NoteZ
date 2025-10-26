@@ -27,13 +27,13 @@ const authenticateToken = async (req, res, next) => {
   }
 };
 
-// Get personalized recommendations for user
-router.get('/', authenticateToken, async (req, res) => {
+// Get song recommendations
+router.get('/songs', authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
     const limit = parseInt(req.query.limit) || 5;
 
-    // Step 1: Get user's recently played songs and their categories
+    // Get user's recently played songs and their categories
     const { data: recentSongs, error: recentError } = await supabase
       .from('listening_history')
       .select(`
@@ -52,26 +52,6 @@ router.get('/', authenticateToken, async (req, res) => {
       console.error('Error fetching recent songs:', recentError);
     }
 
-    // Step 2: Get user's most played categories
-    const { data: frequentSongs, error: freqError } = await supabase
-      .from('user_song_frequency')
-      .select(`
-        song_id,
-        freq,
-        songs!inner(
-          id,
-          category_id,
-          song_categories(name)
-        )
-      `)
-      .eq('user_id', userId)
-      .order('freq', { ascending: false })
-      .limit(10);
-
-    if (freqError) {
-      console.error('Error fetching frequent songs:', freqError);
-    }
-
     // Extract category IDs from user history
     const categoryIds = new Set();
     
@@ -83,8 +63,145 @@ router.get('/', authenticateToken, async (req, res) => {
       });
     }
 
-    if (frequentSongs && frequentSongs.length > 0) {
-      frequentSongs.forEach(item => {
+    // Get already played song IDs to exclude them
+    const playedSongIds = new Set();
+    if (recentSongs) {
+      recentSongs.forEach(item => playedSongIds.add(item.song_id));
+    }
+
+    let recommendations = [];
+
+    // Step 3: If user has history, recommend similar songs
+    if (categoryIds.size > 0) {
+      const { data: similarSongs, error: similarError } = await supabase
+        .from('songs')
+        .select(`
+          id,
+          title,
+          artist,
+          movie,
+          audio_url,
+          cover_url,
+          category_id,
+          song_categories(name, color)
+        `)
+        .in('category_id', Array.from(categoryIds))
+        .eq('is_public', true)
+        .not('id', 'in', `(${Array.from(playedSongIds).join(',')})`)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (!similarError && similarSongs) {
+        recommendations = similarSongs;
+      }
+    }
+
+    // Step 4: If not enough recommendations, add popular/trending songs
+    if (recommendations.length < limit) {
+      const popularQuery = supabase
+        .from('songs')
+        .select(`
+          id,
+          title,
+          artist,
+          movie,
+          audio_url,
+          cover_url,
+          category_id,
+          song_categories(name, color)
+        `)
+        .eq('is_public', true)
+        .order('created_at', { ascending: false });
+
+      // Only exclude played songs if we have some
+      if (playedSongIds.size > 0) {
+        popularQuery.not('id', 'in', `(${Array.from(playedSongIds).join(',')})`);
+      }
+
+      const { data: popularSongs, error: popularError } = await popularQuery
+        .limit(limit - recommendations.length);
+
+      if (!popularError && popularSongs) {
+        recommendations = [...recommendations, ...popularSongs];
+      }
+
+      // If still no songs, try one last time without any filters
+      if (recommendations.length === 0) {
+        const { data: anySongs, error: anyError } = await supabase
+          .from('songs')
+          .select(`
+            id,
+            title,
+            artist,
+            movie,
+            audio_url,
+            cover_url,
+            category_id,
+            song_categories(name, color)
+          `)
+          .eq('is_public', true)
+          .limit(limit);
+
+        if (!anyError && anySongs) {
+          recommendations = anySongs;
+        }
+      }
+    }
+
+    // Format response
+    const formattedRecommendations = recommendations.slice(0, limit).map(song => ({
+      id: song.id,
+      title: song.title,
+      artist: song.artist,
+      movie: song.movie,
+      audioUrl: song.audio_url,
+      coverUrl: song.cover_url,
+      category: song.song_categories?.name,
+      categoryColor: song.song_categories?.color
+    }));
+
+    res.json({
+      songs: formattedRecommendations,
+      basedOn: categoryIds.size > 0 ? 'user_history' : 'popular',
+      count: formattedRecommendations.length
+    });
+
+  } catch (error) {
+    console.error('Song recommendations error:', error);
+    res.status(500).json({ error: 'Failed to fetch song recommendations' });
+  }
+});
+
+// Get personalized recommendations for user
+router.get('/', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const limit = parseInt(req.query.limit) || 5;
+
+    // Get user's recently played songs and their categories
+    const { data: recentSongs, error: recentError } = await supabase
+      .from('listening_history')
+      .select(`
+        song_id,
+        songs!inner(
+          id,
+          category_id,
+          song_categories(name)
+        )
+      `)
+      .eq('user_id', userId)
+      .order('listened_at', { ascending: false })
+      .limit(20);
+
+    if (recentError) {
+      console.error('Error fetching recent songs:', recentError);
+    }
+
+    // Extract category IDs from user history
+    const categoryIds = new Set();
+    
+    if (recentSongs && recentSongs.length > 0) {
+      recentSongs.forEach(item => {
         if (item.songs?.category_id) {
           categoryIds.add(item.songs.category_id);
         }

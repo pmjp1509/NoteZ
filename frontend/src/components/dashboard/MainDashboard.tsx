@@ -69,6 +69,7 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
   const [moodSongs, setMoodSongs] = useState<PlaylistSong[]>([]);
   const [isLoadingMoodSongs, setIsLoadingMoodSongs] = useState(false);
   const [selectedCreator, setSelectedCreator] = useState<string | null>(null);
+  const [lyricsText, setLyricsText] = useState<string>('');
   const audioRef = useRef<HTMLAudioElement | null>(null);
   // Flag ref to mark a user-play request so the loader effect knows to attempt play
   const playRequestedRef = useRef<boolean>(false);
@@ -566,20 +567,15 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
   useEffect(() => {
     const handleShowLyrics = (e: CustomEvent) => {
       const { lyrics, title, artist } = e.detail || {};
+      // Store lyrics in state
+      setLyricsText(lyrics || '');
       // Show lyrics in the middle of the dashboard by setting selectedMood-like state
       setSelectedMood({ label: 'Lyrics', category: 'lyrics', emoji: '🎤', color: 'from-purple-500 to-pink-500' });
-      setMoodSongs([{ id: 'lyrics', title: title || '', artist: artist || '', movie: '', audioUrl: '', coverUrl: '', } as any]);
-      // Replace the moodSongs content to contain lyrics as a single entry; MainDashboard will render accordingly
-      // Store lyrics on the currentSong object to render when selectedMood is 'Lyrics'
-      if (currentSong) {
-        // attach lyrics temporarily
-        currentSong.lyrics = lyrics || currentSong.lyrics;
-      }
     };
 
     window.addEventListener('showLyrics', handleShowLyrics as EventListener);
     return () => window.removeEventListener('showLyrics', handleShowLyrics as EventListener);
-  }, [currentSong]);
+  }, []);
 
   const fetchMoodSongs = async (category: string) => {
     setIsLoadingMoodSongs(true);
@@ -1219,8 +1215,8 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
               <div className="p-6 bg-white/5 rounded-lg border border-white/10">
                 <h3 className="text-lg font-semibold text-white">{currentSong?.name}</h3>
                 <p className="text-sm text-gray-400 mb-4">{currentSong?.movie}</p>
-                <div className="prose prose-invert max-h-[60vh] overflow-y-auto text-sm text-gray-300">
-                  {currentSong?.lyrics || 'Lyrics not available.'}
+                <div className="prose prose-invert max-h-[60vh] overflow-y-auto text-sm text-gray-300 whitespace-pre-wrap">
+                  {lyricsText || currentSong?.lyrics || 'Lyrics not available.'}
                 </div>
               </div>
             ) : moodSongs.length === 0 ? (

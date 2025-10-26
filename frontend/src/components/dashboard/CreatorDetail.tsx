@@ -46,10 +46,12 @@ export default function CreatorDetail({ creatorId, onPlay, onAddToQueue, onToggl
 
   useEffect(() => {
     if (!creatorId) return;
+    
     setLoading(true);
     (async () => {
       try {
         const token = localStorage.getItem('token');
+        
         const [pRes, songsRes, albumsRes, plsRes, followRes] = await Promise.all([
           fetch(`http://localhost:3001/api/users/profile/id/${creatorId}`, { headers: { Authorization: `Bearer ${token}` } }),
           fetch(`http://localhost:3001/api/users/creators/${creatorId}/top-songs?limit=5`, { headers: { Authorization: `Bearer ${token}` } }),
@@ -107,18 +109,25 @@ export default function CreatorDetail({ creatorId, onPlay, onAddToQueue, onToggl
 
   const toggleFollow = async () => {
     if (!creatorId) return;
+    
     const token = localStorage.getItem('token');
+    
     try {
       const method = isFollowing ? 'DELETE' : 'POST';
-      const res = await fetch(`http://localhost:3001/api/users/follow/${creatorId}`, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } });
+      const res = await fetch(`http://localhost:3001/api/users/follow/${creatorId}`, { 
+        method, 
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } 
+      });
+      
       if (res.ok) {
         setIsFollowing(!isFollowing);
         window.dispatchEvent(new CustomEvent('followChanged', { detail: { creatorId, isFollowing: !isFollowing } }));
       } else {
-        console.error('Follow toggle failed');
+        const responseData = await res.json();
+        console.error('Follow failed:', responseData.error);
       }
     } catch (error) {
-      console.error('Follow toggle error', error);
+      console.error('Follow error:', error);
     }
   };
 

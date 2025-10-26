@@ -110,29 +110,28 @@ export function BottomPlayer({
         </div>
 
         {/* Main Player Controls */}
-        <div className="flex items-center gap-4">
-          {/* Song Cover & Info */}
-          <div className="flex items-center gap-3">
-            <div className="relative group">
+        <div className="flex items-center gap-3">
+          {/* Song Cover & Info - fixed width */}
+          <div className="flex items-center gap-2 w-[180px] shrink-0">
+            <div className="relative group flex-shrink-0">
               <img 
                 src={song?.coverUrl || '/assets/album-placeholder.jpg'} 
                 alt="cover" 
                 className="w-10 h-10 rounded-lg object-cover shadow-lg transition-transform group-hover:scale-105" 
               />
-              <div className="absolute inset-0 bg-black/20 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-white truncate">{song?.name || (song as any)?.title || 'Select a song'}</p>
               <p className="text-xs text-gray-300 truncate">{song?.movie || (song as any)?.artist || 'Unknown Artist'}</p>
             </div>
           </div>
 
-          {/* Progress Bar */}
-          <div className="flex-1 flex items-center gap-2">
-            <span className="text-xs text-gray-400 w-10 text-right">
+          {/* Progress Bar - takes remaining space */}
+          <div className="flex-1 flex items-center gap-2 min-w-0">
+            <span className="text-xs text-gray-400 w-10 text-right shrink-0">
               {Math.floor((progressPct / 100) * (duration || 0) / 60).toString().padStart(1, '0') + ':' + Math.floor((progressPct / 100) * (duration || 0) % 60).toString().padStart(2, '0')}
             </span>
-            <div className="flex-1 relative">
+            <div className="flex-1 min-w-0">
               <Slider 
                 value={[progressPct]} 
                 onValueChange={(v) => onSeekPct(v[0] ?? 0)} 
@@ -141,72 +140,71 @@ export function BottomPlayer({
                 className="w-full"
               />
             </div>
-            <span className="text-xs text-gray-400 w-10">
+            <span className="text-xs text-gray-400 w-10 shrink-0">
               {duration ? Math.floor(duration / 60).toString().padStart(1, '0') + ':' + Math.floor(duration % 60).toString().padStart(2, '0') : '0:00'}
             </span>
           </div>
 
-          {/* Control Buttons */}
-          <div className="flex items-center gap-2">
-            {/* New Right-side Buttons: Loop, Queue, Like, Add to Playlist, Lyrics */}
-            {/* Loop (cycles off -> repeat one -> repeat all) */}
+          {/* Control Buttons - fixed width */}
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Loop */}
             <Button
               size="icon"
               variant="ghost"
-              className={`w-10 h-10 rounded-full transition-all ${repeatMode !== 'off' ? 'text-purple-400 bg-purple-600/10 hover:bg-purple-600/20' : 'text-gray-300 hover:text-white hover:bg-white/10'}`}
+              className={`w-9 h-9 rounded-full transition-all ${repeatMode !== 'off' ? 'text-purple-400 bg-purple-600/10 hover:bg-purple-600/20' : 'text-gray-300 hover:text-white hover:bg-white/10'}`}
               onClick={handleReplayToggle}
               aria-label={repeatMode === 'off' ? 'Turn on repeat (one)' : repeatMode === 'one' ? 'Switch to repeat all' : 'Turn off repeat'}
             >
-              <RotateCcw className="w-5 h-5" />
+              <RotateCcw className="w-4 h-4" />
             </Button>
 
-            {/* Queue - toggle queue panel in middle; highlight when queue has items */}
+            {/* Queue */}
             <Button
               size="icon"
               variant="ghost"
-              className={`w-10 h-10 rounded-full transition-all ${queueLength && queueLength > 0 ? 'text-purple-300 bg-purple-700/10 hover:bg-purple-700/20' : 'text-gray-300 hover:text-white hover:bg-white/10'}`}
+              className={`w-9 h-9 rounded-full transition-all ${queueLength && queueLength > 0 ? 'text-purple-300 bg-purple-700/10 hover:bg-purple-700/20' : 'text-gray-300 hover:text-white hover:bg-white/10'}`}
               onClick={() => onToggleQueue && onToggleQueue()}
               aria-label="Show queue"
             >
-              <ListMusic className="w-5 h-5" />
+              <ListMusic className="w-4 h-4" />
             </Button>
 
             {/* Like */}
             <Button
               size="icon"
               variant="ghost"
-              className={`w-10 h-10 rounded-full transition-all ${isFavorite ? 'text-pink-400 bg-pink-600/10 hover:bg-pink-600/20' : 'text-gray-300 hover:text-white hover:bg-white/10'}`}
+              className={`w-9 h-9 rounded-full transition-all ${isFavorite ? 'text-pink-400 bg-pink-600/10 hover:bg-pink-600/20' : 'text-gray-300 hover:text-white hover:bg-white/10'}`}
               disabled={!song?.id}
               onClick={() => onToggleFavorite?.()}
               aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
             >
-              <Heart className={`w-5 h-5 ${ isFavorite ? 'fill-pink-500' : '' }`} />
+              <Heart className={`w-4 h-4 ${ isFavorite ? 'fill-pink-500' : '' }`} />
             </Button>
 
-            {/* Add to Playlist (use same style as search results) */}
+            {/* Add to Playlist */}
             <button
               aria-label="Add to playlist"
               className="w-9 h-9 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition"
               onClick={() => onAddToPlaylist && onAddToPlaylist()}
               disabled={!song?.id}
             >
-              <ListPlus className="w-5 h-5" />
+              <ListPlus className="w-4 h-4" />
             </button>
 
-            {/* Lyrics - always enabled; MainDashboard will show 'not available' if missing */}
+            {/* Lyrics */}
             <Button
               size="icon"
               variant="ghost"
-              className={`w-10 h-10 rounded-full transition-all ${song?.lyrics ? 'text-cyan-300 bg-cyan-700/10 hover:bg-cyan-700/20' : 'text-gray-300 hover:text-white hover:bg-white/10'}`}
+              className={`w-9 h-9 rounded-full transition-all ${song?.lyrics ? 'text-cyan-300 bg-cyan-700/10 hover:bg-cyan-700/20' : 'text-gray-300 hover:text-white hover:bg-white/10'}`}
               onClick={() => onShowLyrics && onShowLyrics()}
               aria-label={song?.lyrics ? 'Show lyrics' : 'Lyrics not available'}
             >
-              <FileText className="w-5 h-5" />
+              <FileText className="w-4 h-4" />
             </Button>
           </div>
 
-          {/* Volume Control */}
-          <div className="flex items-center gap-2 w-28">
+          {/* Volume Control - fixed width */}
+          <div className="flex items-center gap-2 w-24 shrink-0">
             <Button 
               size="icon" 
               variant="ghost" 
