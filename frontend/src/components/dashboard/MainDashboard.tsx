@@ -1,7 +1,4 @@
 import { MoodRecommendations } from "@/components/dashboard/MoodRecommendations";
-import { CommunityPlaylists } from "@/components/dashboard/CommunityPlaylists";
-// import { LyricsPanel } from "@/components/dashboard/LyricsPanel";
-import { Recommendations } from "@/components/dashboard/Recommendations";
 import { RecentlyPlayed, pushRecentlyPlayed } from "@/components/dashboard/RecentlyPlayed";
 import { RecommendationsSection } from "@/components/dashboard/RecommendationsSection";
 import { TrendingSection } from "@/components/dashboard/TrendingSection";
@@ -14,7 +11,6 @@ import { Button } from '@/components/ui/button';
 import { useEffect, useRef, useState } from "react";
 import { type SongItem, normalizeSongItem } from "@/lib/songs";
 import { AddToPlaylistDialog } from "./AddToPlaylistDialog";
-import { supabase } from "@/config/supabase";
 import { useToast } from "@/hooks/useToast";
 import { ToastContainer } from "@/components/ui/toast";
 
@@ -46,6 +42,8 @@ type ExternalSearchProps = {
   onClear: () => void;
   artistResults?: any[];
   setArtistResults?: (v: any[]) => void;
+  albumResults?: any[];
+  playlistResults?: any[];
 };
 
 export function MainDashboard({ external }: { external?: ExternalSearchProps }) {
@@ -74,7 +72,7 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   // Flag ref to mark a user-play request so the loader effect knows to attempt play
   const playRequestedRef = useRef<boolean>(false);
-  const { toasts, removeToast, showFavoriteAdded, showFavoriteRemoved, showError } = useToast();
+  const { toasts, removeToast, showFavoriteAdded, showFavoriteRemoved } = useToast();
 
   useEffect(() => {
     let mounted = true;
@@ -361,6 +359,34 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
     setQueue((prev) => [...prev, song]);
   };
 
+  const handlePlaylistClick = async (playlist: Playlist) => {
+    setSelectedPlaylist(playlist);
+    setIsLoadingPlaylist(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:3001/api/playlists/${playlist.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const songs = data.playlist?.songs || data.songs || [];
+        const playlistSongsData: PlaylistSong[] = songs.map((s: any) => ({
+          id: s.id,
+          title: s.title || s.name,
+          artist: s.artist || '',
+          movie: s.movie || '',
+          audioUrl: s.audio_url || s.audioUrl || '',
+          coverUrl: s.cover_url || s.coverUrl || ''
+        }));
+        setPlaylistSongs(playlistSongsData);
+      }
+    } catch (error) {
+      console.error('Failed to fetch playlist songs:', error);
+    } finally {
+      setIsLoadingPlaylist(false);
+    }
+  };
+
   const [selectedSong, setSelectedSong] = useState<SongItem | null>(null);
   const [showAddToPlaylist, setShowAddToPlaylist] = useState(false);
 
@@ -464,7 +490,10 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
 
     const handleOpenAddToPlaylist = (event: CustomEvent) => {
       const song = event.detail as SongItem;
-      if (song) addToPlaylist(song);
+      if (song) {
+        setSelectedSong(song);
+        setShowAddToPlaylist(true);
+      }
     };
 
     const handleToggleLike = (event: CustomEvent) => {
@@ -472,23 +501,66 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
       if (song) toggleLike(song);
     };
 
-    window.addEventListener('addToQueue', handleAddToQueue as EventListener);
-    window.addEventListener('openAddToPlaylist', handleOpenAddToPlaylist as EventListener);
-    window.addEventListener('toggleLike', handleToggleLike as EventListener);
-    // Listen for requests to open a creator detail in the middle column
     const handleOpenCreator = (event: CustomEvent) => {
       const { creatorId } = event.detail || {};
       if (creatorId) setSelectedCreator(creatorId);
     };
+
+    const handleOpenAlbum = (event: CustomEvent) => {
+      const { albumId } = event.detail || {};
+      if (!albumId) return;
+      
+      setIsLoadingPlaylist(true);
+      (async () => {
+        try {
+          const token = localStorage.getItem('token');
+          const response = await fetch(`http://localhost:3001/api/albums/${albumId}/songs`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            const songs = data.songs || [];
+            const albumSongs: PlaylistSong[] = songs.map((s: any) => ({
+              id: s.id,
+              title: s.title || s.name,
+              artist: s.artist || '',
+              movie: s.movie || '',
+              audioUrl: s.audio_url || s.audioUrl || '',
+              coverUrl: s.cover_url || s.coverUrl || ''
+            }));
+            setPlaylistSongs(albumSongs);
+            setSelectedPlaylist({
+              id: data.album.id,
+              name: data.album.title,
+              description: data.album.description || '',
+              songCount: albumSongs.length,
+              coverUrl: data.album.coverUrl,
+              isPublic: true
+            });
+          }
+        } catch (error) {
+          console.error('Failed to fetch album songs:', error);
+        } finally {
+          setIsLoadingPlaylist(false);
+        }
+      })();
+    };
+
+    window.addEventListener('addToQueue', handleAddToQueue as EventListener);
+    window.addEventListener('openAddToPlaylist', handleOpenAddToPlaylist as EventListener);
+    window.addEventListener('toggleLike', handleToggleLike as EventListener);
     window.addEventListener('openCreator', handleOpenCreator as EventListener);
+    window.addEventListener('openAlbum', handleOpenAlbum as EventListener);
 
     return () => {
       window.removeEventListener('addToQueue', handleAddToQueue as EventListener);
       window.removeEventListener('openAddToPlaylist', handleOpenAddToPlaylist as EventListener);
       window.removeEventListener('toggleLike', handleToggleLike as EventListener);
       window.removeEventListener('openCreator', handleOpenCreator as EventListener);
+      window.removeEventListener('openAlbum', handleOpenAlbum as EventListener);
     };
-  }, [queue, likedIds]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Listen for showLyrics event dispatched by BottomPlayer
   useEffect(() => {
@@ -607,73 +679,14 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
     if (currentSong) toggleLike(currentSong);
   };
 
-  const handleSearch = async () => {
-    if (!effectiveSearchQuery.trim()) {
-      setSearchResults([]);
-      setAlbumResults([]);
-      setPlaylistResults([]);
-      setArtistResults([]);
-      setShowSearchResults(false);
-      return;
-    }
-
-    try {
-  const params = new URLSearchParams({ search: effectiveSearchQuery });
-      // Branch based on filter
-      if (searchFilter === 'albums') {
-        // Use the dedicated album search endpoint
-        const response = await fetch(`http://localhost:3001/api/albums/search?q=${encodeURIComponent(effectiveSearchQuery)}`);
-        if (response.ok) {
-          const data = await response.json();
-          setAlbumResults(data.albums || []);
-        } else {
-          setAlbumResults([]);
-        }
-        setShowSearchResults(true);
-      } else if (searchFilter === 'playlists') {
-        // Use backend playlist search endpoint which expects `q` param and path /search
-        const response = await fetch(`http://localhost:3001/api/playlists/search?q=${encodeURIComponent(effectiveSearchQuery)}`);
-        if (response.ok) {
-          const data = await response.json();
-          setPlaylistResults(data.playlists || data.items || []);
-        } else {
-          setPlaylistResults([]);
-        }
-        setShowSearchResults(true);
-      } else if (searchFilter === 'artists') {
-        const response = await fetch(`http://localhost:3001/api/users/search?q=${encodeURIComponent(effectiveSearchQuery)}`);
-        const data = await response.json();
-        // Accept creators/users shapes
-        setArtistResults(data.creators || data.users || data.items || []);
-        setShowSearchResults(true);
-      } else {
-        // songs or all (default to songs)
-        const response = await fetch(`http://localhost:3001/api/songs?${params}`);
-        const data = await response.json();
-        const mapped: SongItem[] = await Promise.all((data.songs || []).map(normalizeSongItem));
-        setSearchResults(mapped);
-        setShowSearchResults(true);
-      }
-    } catch (error) {
-      console.error('Search failed:', error);
-      setSearchResults([]);
-      setAlbumResults([]);
-      setPlaylistResults([]);
-      setArtistResults([]);
-    } finally {
-    }
-  };
-
-  const clearSearch = () => {
-    setSearchQuery("");
-    setSearchResults([]);
-    setShowSearchResults(false);
-  };
+  // Search is now handled in Dashboard.tsx, this is just local if no external provided
 
   // Derive effective search state/handlers (use external if provided)
   const effectiveSearchQuery = external ? external.searchQuery : searchQuery;
   const effectiveSearchResults = external ? external.searchResults : searchResults;
   const effectiveArtistResults = external ? external.artistResults || [] : artistResults;
+  const effectiveAlbumResults = external ? external.albumResults || [] : albumResults;
+  const effectivePlaylistResults = external ? external.playlistResults || [] : playlistResults;
   const effectiveShowSearchResults = external ? external.showSearchResults : showSearchResults;
   const triggerClear = external ? external.onClear : clearSearch;
 
@@ -748,16 +761,19 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
 
             {/* Filters - show inside search results */}
             <div className="flex items-center gap-2 mb-4">
-              <button className={`px-3 py-1 rounded-md text-sm ${searchFilter === 'songs' ? 'bg-purple-600 text-white' : 'bg-white/5 text-gray-200'}`} onClick={() => { setSearchFilter('songs'); /* songs are handled by header/parent */ }}>
+              <button className={`px-3 py-1 rounded-md text-sm ${searchFilter === 'all' ? 'bg-purple-600 text-white' : 'bg-white/5 text-gray-200'}`} onClick={() => setSearchFilter('all')}>
+                All
+              </button>
+              <button className={`px-3 py-1 rounded-md text-sm ${searchFilter === 'songs' ? 'bg-purple-600 text-white' : 'bg-white/5 text-gray-200'}`} onClick={() => setSearchFilter('songs')}>
                 Songs
               </button>
-              <button className={`px-3 py-1 rounded-md text-sm ${searchFilter === 'albums' ? 'bg-purple-600 text-white' : 'bg-white/5 text-gray-200'}`} onClick={() => { setSearchFilter('albums'); handleSearch(); }}>
+              <button className={`px-3 py-1 rounded-md text-sm ${searchFilter === 'albums' ? 'bg-purple-600 text-white' : 'bg-white/5 text-gray-200'}`} onClick={() => setSearchFilter('albums')}>
                 Albums
               </button>
-              <button className={`px-3 py-1 rounded-md text-sm ${searchFilter === 'playlists' ? 'bg-purple-600 text-white' : 'bg-white/5 text-gray-200'}`} onClick={() => { setSearchFilter('playlists'); handleSearch(); }}>
+              <button className={`px-3 py-1 rounded-md text-sm ${searchFilter === 'playlists' ? 'bg-purple-600 text-white' : 'bg-white/5 text-gray-200'}`} onClick={() => setSearchFilter('playlists')}>
                 Playlists
               </button>
-              <button className={`px-3 py-1 rounded-md text-sm ${searchFilter === 'artists' ? 'bg-purple-600 text-white' : 'bg-white/5 text-gray-200'}`} onClick={() => { setSearchFilter('artists'); handleSearch(); }}>
+              <button className={`px-3 py-1 rounded-md text-sm ${searchFilter === 'artists' ? 'bg-purple-600 text-white' : 'bg-white/5 text-gray-200'}`} onClick={() => setSearchFilter('artists')}>
                 Artists
               </button>
             </div>
@@ -802,21 +818,110 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
               </>
             )}
 
+            {/* Albums section for 'all' filter */}
+            {searchFilter === 'all' && effectiveAlbumResults.length > 0 && (
+              <div className="mt-6">
+                <h4 className="text-white font-semibold mb-3 text-lg">Albums</h4>
+                <div className="grid grid-cols-1 gap-4">
+                  {effectiveAlbumResults.slice(0, 5).map((alb) => (
+                    <div key={alb.id} className="p-4 bg-white/5 rounded-lg border border-white/10 cursor-pointer hover:bg-white/10 transition-all flex items-center" onClick={async () => {
+                      // Fetch album songs and display them
+                      try {
+                        const token = localStorage.getItem('token');
+                        const response = await fetch(`http://localhost:3001/api/albums/${alb.id}/songs`, {
+                          headers: { Authorization: `Bearer ${token}` }
+                        });
+                        if (response.ok) {
+                          const data = await response.json();
+                          const songs = data.songs || [];
+                          const albumSongs: PlaylistSong[] = songs.map((s: any) => ({
+                            id: s.id,
+                            title: s.title || s.name,
+                            artist: s.artist || '',
+                            movie: s.movie || '',
+                            audioUrl: s.audio_url || s.audioUrl || '',
+                            coverUrl: s.cover_url || s.coverUrl || ''
+                          }));
+                          setPlaylistSongs(albumSongs);
+                          setSelectedPlaylist({
+                            id: alb.id,
+                            name: alb.title,
+                            description: alb.description || '',
+                            songCount: albumSongs.length,
+                            coverUrl: alb.cover_url || alb.coverUrl,
+                            isPublic: true
+                          });
+                        }
+                      } catch (error) {
+                        console.error('Failed to fetch album songs:', error);
+                      }
+                    }}>
+                      <div className="w-16 h-16 rounded-lg overflow-hidden bg-white/5 flex-shrink-0">
+                        {alb.cover_url || alb.coverUrl ? <img src={alb.cover_url || alb.coverUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-white">{(alb.title||'A').charAt(0)}</div>}
+                      </div>
+                      <div className="flex-1 min-w-0 ml-4">
+                        <h4 className="text-white font-medium truncate">{alb.title}</h4>
+                        <p className="text-gray-400 text-sm truncate">{alb.creator?.username || alb.creator?.fullName || "Unknown Artist"}</p>
+                        {alb.songCount !== undefined && (
+                          <p className="text-gray-500 text-xs">{alb.songCount} songs</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Albums */}
             {searchFilter === 'albums' && (
               <div>
-                {albumResults.length === 0 ? (
+                {effectiveAlbumResults.length === 0 ? (
                   <p className="text-gray-400 text-center py-8">No albums found.</p>
                 ) : (
                   <div className="grid grid-cols-1 gap-4">
-                    {albumResults.map((alb) => (
-                      <div key={alb.id} className="p-4 bg-white/5 rounded-lg border border-white/10 cursor-pointer hover:bg-white/10 transition-all flex items-center" onClick={() => {/* maybe open album view later */}}>
+                    {effectiveAlbumResults.map((alb) => (
+                      <div key={alb.id} className="p-4 bg-white/5 rounded-lg border border-white/10 cursor-pointer hover:bg-white/10 transition-all flex items-center" onClick={async () => {
+                        // Fetch album songs and display them
+                        try {
+                          const token = localStorage.getItem('token');
+                          const response = await fetch(`http://localhost:3001/api/albums/${alb.id}/songs`, {
+                            headers: { Authorization: `Bearer ${token}` }
+                          });
+                          if (response.ok) {
+                            const data = await response.json();
+                            const songs = data.songs || [];
+                            // Convert to PlaylistSong format
+                            const albumSongs: PlaylistSong[] = songs.map((s: any) => ({
+                              id: s.id,
+                              title: s.title || s.name,
+                              artist: s.artist || '',
+                              movie: s.movie || '',
+                              audioUrl: s.audio_url || s.audioUrl || '',
+                              coverUrl: s.cover_url || s.coverUrl || ''
+                            }));
+                            setPlaylistSongs(albumSongs);
+                            setSelectedPlaylist({
+                              id: alb.id,
+                              name: alb.title,
+                              description: alb.description || '',
+                              songCount: albumSongs.length,
+                              coverUrl: alb.cover_url || alb.coverUrl,
+                              isPublic: true
+                            });
+                          }
+                        } catch (error) {
+                          console.error('Failed to fetch album songs:', error);
+                        }
+                      }}>
                         <div className="w-16 h-16 rounded-lg overflow-hidden bg-white/5 flex-shrink-0">
                           {alb.cover_url || alb.coverUrl ? <img src={alb.cover_url || alb.coverUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-white">{(alb.title||'A').charAt(0)}</div>}
                         </div>
                         <div className="flex-1 min-w-0 ml-4">
                           <h4 className="text-white font-medium truncate">{alb.title}</h4>
-                          <p className="text-gray-400 text-sm truncate">{alb.creator_name || alb.creator?.username || alb.creatorUsername || alb.creatorName || "Unknown"}</p>
+                          <p className="text-gray-400 text-sm truncate">{alb.creator?.username || alb.creator?.fullName || "Unknown Artist"}</p>
+                          {alb.songCount !== undefined && (
+                            <p className="text-gray-500 text-xs">{alb.songCount} songs</p>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -828,23 +933,94 @@ export function MainDashboard({ external }: { external?: ExternalSearchProps }) 
             {/* Playlists */}
             {searchFilter === 'playlists' && (
               <div>
-                {playlistResults.length === 0 ? (
+                {effectivePlaylistResults.length === 0 ? (
                   <p className="text-gray-400 text-center py-8">No playlists found.</p>
                 ) : (
                   <div className="grid grid-cols-1 gap-4">
-                    {playlistResults.map((pl) => (
-                      <div key={pl.id} className="p-4 bg-white/5 rounded-lg border border-white/10 cursor-pointer hover:bg-white/10 transition-all flex items-center" onClick={() => {/* maybe open playlist */}}>
+                    {effectivePlaylistResults.map((pl) => (
+                      <div key={pl.id} className="p-4 bg-white/5 rounded-lg border border-white/10 cursor-pointer hover:bg-white/10 transition-all flex items-center" onClick={() => {
+                        // Open playlist when clicked
+                        const playlist: Playlist = {
+                          id: pl.id,
+                          name: pl.name,
+                          description: pl.description,
+                          songCount: pl.songCount || pl.playlist_songs?.length || 0,
+                          coverUrl: pl.cover_url || pl.coverUrl,
+                          isPublic: pl.isPublic || pl.is_public || true
+                        };
+                        handlePlaylistClick(playlist);
+                      }}>
                         <div className="w-16 h-16 rounded-lg overflow-hidden bg-white/5 flex-shrink-0">
                           {pl.cover_url || pl.coverUrl ? <img src={pl.cover_url || pl.coverUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-white">{(pl.name||'P').charAt(0)}</div>}
                         </div>
                         <div className="flex-1 min-w-0 ml-4">
                           <h4 className="text-white font-medium truncate">{pl.name}</h4>
-                          <p className="text-gray-400 text-sm truncate">{pl.creator_name || pl.creator?.username || pl.creatorName || 'Unknown'}</p>
+                          <p className="text-gray-400 text-sm truncate">{pl.creator?.username || pl.creator?.fullName || pl.creatorName || 'Unknown'}</p>
+                          {(pl.songCount || pl.playlist_songs?.length) && (
+                            <p className="text-gray-500 text-xs">{pl.songCount || pl.playlist_songs.length} songs</p>
+                          )}
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Playlists section for 'all' filter */}
+            {searchFilter === 'all' && effectivePlaylistResults.length > 0 && (
+              <div className="mt-6">
+                <h4 className="text-white font-semibold mb-3 text-lg">Playlists</h4>
+                <div className="grid grid-cols-1 gap-4">
+                  {effectivePlaylistResults.slice(0, 5).map((pl) => (
+                    <div key={pl.id} className="p-4 bg-white/5 rounded-lg border border-white/10 cursor-pointer hover:bg-white/10 transition-all flex items-center" onClick={() => {
+                      const playlist: Playlist = {
+                        id: pl.id,
+                        name: pl.name,
+                        description: pl.description,
+                        songCount: pl.songCount || pl.playlist_songs?.length || 0,
+                        coverUrl: pl.cover_url || pl.coverUrl,
+                        isPublic: pl.isPublic || pl.is_public || true
+                      };
+                      handlePlaylistClick(playlist);
+                    }}>
+                      <div className="w-16 h-16 rounded-lg overflow-hidden bg-white/5 flex-shrink-0">
+                        {pl.cover_url || pl.coverUrl ? <img src={pl.cover_url || pl.coverUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-white">{(pl.name||'P').charAt(0)}</div>}
+                      </div>
+                      <div className="flex-1 min-w-0 ml-4">
+                        <h4 className="text-white font-medium truncate">{pl.name}</h4>
+                        <p className="text-gray-400 text-sm truncate">{pl.creator?.username || pl.creator?.fullName || 'Unknown'}</p>
+                        {(pl.songCount || pl.playlist_songs?.length) && (
+                          <p className="text-gray-500 text-xs">{pl.songCount || pl.playlist_songs.length} songs</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Artists section for 'all' filter */}
+            {searchFilter === 'all' && effectiveArtistResults.length > 0 && (
+              <div className="mt-6">
+                <h4 className="text-white font-semibold mb-3 text-lg">Artists</h4>
+                <div className="grid grid-cols-1 gap-4">
+                  {effectiveArtistResults.slice(0, 5).map((artist) => (
+                    <div key={artist.id} className="p-3 bg-white/5 rounded-lg border border-white/10 cursor-pointer hover:bg-white/10 transition-all flex items-center" onClick={() => {
+                      window.dispatchEvent(new CustomEvent('openCreator', { detail: { creatorId: artist.id } }));
+                      setShowSearchResults(false);
+                      setSearchQuery('');
+                    }}>
+                      <div className="w-12 h-12 rounded-full overflow-hidden bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
+                        {artist.avatar_url || artist.avatarUrl ? <img src={artist.avatar_url || artist.avatarUrl} className="w-full h-full object-cover" /> : <span className="text-white font-medium">{(artist.username||artist.fullName||artist.name||'A').charAt(0)}</span>}
+                      </div>
+                      <div className="flex-1 min-w-0 ml-3">
+                        <h4 className="text-white font-medium truncate">{artist.fullName || artist.username || artist.name}</h4>
+                        <p className="text-gray-400 text-sm truncate">@{artist.username || artist.handle || ''}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 

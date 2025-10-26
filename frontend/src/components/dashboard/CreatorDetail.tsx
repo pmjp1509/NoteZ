@@ -11,7 +11,7 @@ interface CreatorProfile {
   avatarUrl?: string;
   bio?: string;
   role?: string;
-  followersCount?: number;
+  followersCount: number;
 }
 
 interface SongSimple {
@@ -27,6 +27,7 @@ interface AlbumSimple {
   id: string;
   title: string;
   coverUrl?: string;
+  songCount?: number;
 }
 
 interface PlaylistSimple {
@@ -59,7 +60,21 @@ export default function CreatorDetail({ creatorId, onPlay, onAddToQueue, onToggl
 
         if (pRes.ok) {
           const pd = await pRes.json();
-          setProfile(pd.user || pd);
+          const profileData = pd.user || pd;
+          
+          // Fetch followers count
+          let followersCount = 0;
+          try {
+            const followersRes = await fetch(`http://localhost:3001/api/users/followers/${creatorId}`, { headers: { Authorization: `Bearer ${token}` } });
+            if (followersRes.ok) {
+              const followersData = await followersRes.json();
+              followersCount = followersData.count || 0;
+            }
+          } catch (e) {
+            console.warn('Failed to fetch followers count:', e);
+          }
+          
+          setProfile({ ...profileData, followersCount });
         }
 
         if (songsRes.ok) {
@@ -125,6 +140,7 @@ export default function CreatorDetail({ creatorId, onPlay, onAddToQueue, onToggl
               <h3 className="text-xl text-white font-semibold">{profile?.fullName || profile?.username}</h3>
               <p className="text-gray-400">@{profile?.username}</p>
               {profile?.bio && <p className="text-sm text-gray-500 mt-1 max-w-lg">{profile.bio}</p>}
+              <p className="text-sm text-gray-400 mt-2">{profile?.followersCount || 0} followers</p>
             </div>
           </div>
 
@@ -182,20 +198,22 @@ export default function CreatorDetail({ creatorId, onPlay, onAddToQueue, onToggl
           ) : (
             <div className="flex space-x-4 overflow-x-auto pb-4">
               {albums.map((a) => (
-                <div key={a.id} className="w-44 flex-shrink-0 bg-white/5 hover:bg-white/10 transition-colors rounded-lg p-3 cursor-pointer">
-                  <div className="w-full aspect-square rounded-lg overflow-hidden bg-white/5 mb-3">
-                    {a.coverUrl ? (
-                      <img src={a.coverUrl} className="w-full h-full object-cover" alt={a.title} />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-white bg-gradient-to-br from-purple-500 to-pink-500">
-                        <span className="text-3xl font-bold">{a.title.charAt(0)}</span>
+                <div key={a.id} className="w-44 flex-shrink-0 bg-white/5 hover:bg-white/10 transition-colors rounded-lg p-3">
+                      <div className="w-full aspect-square rounded-lg overflow-hidden bg-white/5 mb-3 cursor-pointer" onClick={() => {
+                        window.dispatchEvent(new CustomEvent('openAlbum', { detail: { albumId: a.id } }));
+                      }}>
+                        {a.coverUrl ? (
+                          <img src={a.coverUrl} className="w-full h-full object-cover" alt={a.title} />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-white bg-gradient-to-br from-purple-500 to-pink-500">
+                            <span className="text-3xl font-bold">{a.title.charAt(0)}</span>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-white font-medium truncate">{a.title}</p>
-                    <p className="text-gray-400 text-sm mt-0.5">{a.songCount || 0} songs</p>
-                  </div>
+                      <div>
+                        <p className="text-white font-medium truncate">{a.title}</p>
+                        <p className="text-gray-400 text-sm mt-0.5">{a.songCount || 0} songs</p>
+                      </div>
                 </div>
               ))}
             </div>

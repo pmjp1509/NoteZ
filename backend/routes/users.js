@@ -828,6 +828,28 @@ router.get('/creators/:id/playlists', tryAuthenticate, async (req, res) => {
   }
 });
 
+// Get follower count for a user
+router.get('/followers/:userId', tryAuthenticate, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const { count, error } = await supabase
+      .from('user_follows')
+      .select('*', { count: 'exact', head: true })
+      .eq('followed_id', userId);
+    
+    if (error) {
+      console.error('Error fetching followers count:', error);
+      return res.status(500).json({ error: 'Failed to fetch followers count' });
+    }
+    
+    res.json({ count: count || 0 });
+  } catch (error) {
+    console.error('Get followers count error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Get user's followed creators
 router.get('/following', authenticateToken, async (req, res) => {
   try {

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { User, Session } from '@supabase/supabase-js';
+import { User } from '@supabase/supabase-js';
 import { supabase } from '../config/supabase';
 
 interface AuthContextType {
@@ -73,10 +73,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     // Get initial session
     supabase.auth.getSession().then(({ data: { session }, error }) => {
+      // DEBUG: Log session arrival for OAuth flows
+      console.debug('AuthContext: getSession result', { session, error });
       setCurrentUser(session?.user ?? null);
       if (session?.access_token) {
+        console.debug('AuthContext: saving access_token to localStorage', session.access_token?.slice(0, 20) + '...');
         localStorage.setItem('token', session.access_token);
       } else {
+        console.debug('AuthContext: no access_token found, removing token from localStorage');
         localStorage.removeItem('token');
       }
       setLoading(false);
@@ -88,15 +92,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      // DEBUG: Log auth state change events (important for OAuth redirect)
+      console.debug('AuthContext: onAuthStateChange', { event, session });
       setCurrentUser(session?.user ?? null);
       if (session?.access_token) {
+        console.debug('AuthContext: onAuthStateChange saving access_token to localStorage', session.access_token?.slice(0, 20) + '...');
         localStorage.setItem('token', session.access_token);
         // Provision user row in our DB immediately after OAuth redirect
         fetch('http://localhost:3001/api/users/me', {
           headers: { Authorization: `Bearer ${session.access_token}` },
         }).catch(() => {});
       } else {
+        console.debug('AuthContext: onAuthStateChange no access_token, removing token');
         localStorage.removeItem('token');
       }
       setLoading(false);

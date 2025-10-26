@@ -88,4 +88,67 @@ router.get('/search', tryAuthenticate, async (req, res) => {
   }
 });
 
+// Get album songs
+router.get('/:id/songs', tryAuthenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // First check if album exists
+    const { data: album, error: albumError } = await supabase
+      .from('albums')
+      .select('id, title, description, cover_url, is_public')
+      .eq('id', id)
+      .eq('is_public', true)
+      .single();
+
+    if (albumError || !album) {
+      return res.status(404).json({ error: 'Album not found' });
+    }
+
+    // Get all songs in this album
+    const { data: songs, error: songsError } = await supabase
+      .from('album_songs')
+      .select(`
+        position,
+        songs(
+          id,
+          title,
+          artist,
+          movie,
+          audio_url,
+          cover_url,
+          duration,
+          song_categories(name, color)
+        )
+      `)
+      .eq('album_id', id)
+      .order('position', { ascending: true });
+
+    if (songsError) {
+      console.error('Error fetching album songs:', songsError);
+      return res.status(500).json({ error: 'Failed to fetch album songs' });
+    }
+
+    // Sort songs by position and extract song data
+    const sortedSongs = (songs || [])
+      .sort((a, b) => a.position - b.position)
+      .map(item => item.songs)
+      .filter(Boolean);
+
+    res.json({
+      album: {
+        id: album.id,
+        title: album.title,
+        description: album.description,
+        coverUrl: album.cover_url
+      },
+      songs: sortedSongs
+    });
+
+  } catch (error) {
+    console.error('Get album songs error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 module.exports = router;

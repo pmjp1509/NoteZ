@@ -22,11 +22,12 @@ interface UserProfile {
 export default function Dashboard() {
   const { currentUser, logout } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
   
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SongItem[]>([]);
   const [artistResults, setArtistResults] = useState<any[]>([]);
+  const [albumResults, setAlbumResults] = useState<any[]>([]);
+  const [playlistResults, setPlaylistResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
   
@@ -91,27 +92,51 @@ export default function Dashboard() {
   async function handleSearch() {
     if (!searchQuery.trim()) {
       setSearchResults([]);
+      setArtistResults([]);
+      setAlbumResults([]);
+      setPlaylistResults([]);
       setShowSearchResults(false);
       return;
     }
     setIsSearching(true);
     try {
-      const params = new URLSearchParams({ search: searchQuery });
-      const data = await apiClient.get(`/api/songs?${params}`);
-      const mapped: SongItem[] = await Promise.all((data.songs || []).map(normalizeSongItem));
-      setSearchResults(mapped);
-      setShowSearchResults(true);
-      // Also fetch matching creators/artists so MainDashboard can render them
-      try {
-        const artists = await apiClient.get(`/api/users/search?q=${encodeURIComponent(searchQuery)}`);
-        setArtistResults(artists.creators || artists.users || artists.items || []);
-      } catch (e) {
-        console.warn('Failed to fetch artist search results', e);
-        setArtistResults([]);
+      // Search all types in parallel
+      const [songsData, artistsData, albumsData, playlistsData] = await Promise.allSettled([
+        apiClient.get(`/api/songs?search=${encodeURIComponent(searchQuery)}`),
+        apiClient.get(`/api/users/search?q=${encodeURIComponent(searchQuery)}`),
+        apiClient.get(`/api/albums/search?q=${encodeURIComponent(searchQuery)}`),
+        apiClient.get(`/api/playlists/search?q=${encodeURIComponent(searchQuery)}`)
+      ]);
+
+      // Process songs
+      if (songsData.status === 'fulfilled') {
+        const mapped: SongItem[] = await Promise.all((songsData.value.songs || []).map(normalizeSongItem));
+        setSearchResults(mapped);
       }
+
+      // Process artists
+      if (artistsData.status === 'fulfilled') {
+        const artists = artistsData.value;
+        setArtistResults(artists.creators || artists.users || artists.items || []);
+      }
+
+      // Process albums
+      if (albumsData.status === 'fulfilled') {
+        setAlbumResults(albumsData.value.albums || []);
+      }
+
+      // Process playlists
+      if (playlistsData.status === 'fulfilled') {
+        setPlaylistResults(playlistsData.value.playlists || playlistsData.value.items || []);
+      }
+
+      setShowSearchResults(true);
     } catch (error) {
       console.error('Search failed:', error);
       setSearchResults([]);
+      setArtistResults([]);
+      setAlbumResults([]);
+      setPlaylistResults([]);
     } finally {
       setIsSearching(false);
     }
@@ -120,6 +145,9 @@ export default function Dashboard() {
   function clearSearch() {
     setSearchQuery("");
     setSearchResults([]);
+    setArtistResults([]);
+    setAlbumResults([]);
+    setPlaylistResults([]);
     setShowSearchResults(false);
   }
 
@@ -403,6 +431,8 @@ export default function Dashboard() {
             onClear: clearSearch,
             artistResults,
             setArtistResults,
+            albumResults,
+            playlistResults,
           }}
         />
       </main>
