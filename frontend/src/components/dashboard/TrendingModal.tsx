@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Music, Disc3, ListMusic, Play, X, Filter } from "lucide-react";
 import { useEffect, useState } from "react";
+import "@/components/ui/select.css";
 
 interface TrendingModalProps {
   open: boolean;

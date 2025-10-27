@@ -131,8 +131,13 @@ export function Library({ onPlay, onPlaylistSelect }: LibraryProps) {
     return () => window.removeEventListener('favoritesChanged', handler as EventListener);
   }, []);
 
-  // Listen for follow changes to refresh the followed creators list
+  // Load followed creators when component mounts and listen for changes
   useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      fetchFollowedCreators(token).catch((e) => console.error('Error loading followed creators:', e));
+    }
+    
     const handler = (event: CustomEvent) => {
       const token = localStorage.getItem('token');
       if (token) {
@@ -228,6 +233,7 @@ export function Library({ onPlay, onPlaylistSelect }: LibraryProps) {
   };
 
   const fetchFollowedCreators = async (token: string) => {
+    setIsLoading(true);
     try {
       const response = await fetch('http://localhost:3001/api/users/following', {
         headers: { Authorization: `Bearer ${token}` },
@@ -238,6 +244,8 @@ export function Library({ onPlay, onPlaylistSelect }: LibraryProps) {
       }
     } catch (error) {
       console.error('Failed to fetch followed creators:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 

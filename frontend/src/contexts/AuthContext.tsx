@@ -72,7 +72,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   useEffect(() => {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
+    supabase.auth.getSession().then(async ({ data: { session }, error }) => {
       // DEBUG: Log session arrival for OAuth flows
       console.debug('AuthContext: getSession result', { session, error });
       setCurrentUser(session?.user ?? null);
@@ -84,6 +84,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
         localStorage.removeItem('token');
       }
       setLoading(false);
+      // DEV helper: optionally auto-set a dev token for faster local testing
+      try {
+        const devToken = (import.meta as any).env?.VITE_DEV_AUTO_LOGIN_TOKEN;
+        if (!session && devToken) {
+          console.debug('AuthContext: dev auto-login token found, setting session');
+          // Try to set session client-side for development convenience
+          // setSession may accept only access_token in some client versions
+          try {
+            await (supabase.auth as any).setSession({ access_token: devToken });
+            localStorage.setItem('token', devToken);
+            const { data } = await supabase.auth.getUser(devToken);
+            setCurrentUser(data?.user ?? null);
+          } catch (_e) {
+            // Fallback: just set localStorage token so API calls work
+            localStorage.setItem('token', devToken);
+          }
+        }
+      } catch (e) {
+        console.warn('AuthContext: dev auto-login failed', e);
+      }
     }).catch(error => {
       console.error('AuthContext: Error getting session', error);
       setLoading(false);

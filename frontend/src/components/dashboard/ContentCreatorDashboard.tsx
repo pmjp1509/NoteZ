@@ -277,7 +277,7 @@ export function ContentCreatorDashboard() {
         description: a.description,
         coverUrl: a.cover_url || a.coverUrl || '',
         createdAt: a.created_at || a.createdAt,
-        songCount: a.total_songs || a.song_count || a.songCount || 0
+        songCount: a.total_songs || a.song_count?.[0]?.count || a.songCount || 0
       }));
       setAlbums(albums);
     } catch (error) {

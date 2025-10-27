@@ -163,6 +163,15 @@ export default function Dashboard() {
   const COUNT_REFRESH_INTERVAL = 60000; // 60 seconds
   const THROTTLE_WINDOW = 5000; // 5 seconds minimum between fetches
 
+  // Listen for notifications being read
+  useEffect(() => {
+    const handleNotificationsRead = () => {
+      setUnreadNotificationsCount(0);
+    };
+    window.addEventListener('notificationsRead', handleNotificationsRead);
+    return () => window.removeEventListener('notificationsRead', handleNotificationsRead);
+  }, []);
+
   // Optimized notification counts fetching with throttling
   const fetchNotificationCounts = useCallback(async (force = false) => {
     const now = Date.now();

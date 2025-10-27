@@ -40,6 +40,19 @@ export function NotificationsPanel({ isOpen, onClose, onFriendRequestAction }: N
   const [activeTab, setActiveTab] = useState<'notifications' | 'requests'>('notifications');
   const fetchingRef = useRef(false);
 
+  // Mark notifications as read when panel opens
+  const markNotificationsAsRead = async () => {
+    try {
+      await apiClient.post('/api/users/notifications/mark-read');
+      // Refresh notifications to get updated read status
+      fetchNotifications();
+      // Dispatch event to update unread count in dashboard
+      window.dispatchEvent(new CustomEvent('notificationsRead'));
+    } catch (error) {
+      console.error('Failed to mark notifications as read:', error);
+    }
+  };
+
   // Only fetch when panel opens AND hasn't loaded before, or needs refresh
   useEffect(() => {
     if (isOpen && !fetchingRef.current) {
@@ -50,6 +63,8 @@ export function NotificationsPanel({ isOpen, onClose, onFriendRequestAction }: N
       ]).finally(() => {
         fetchingRef.current = false;
       });
+      // Mark notifications as read when panel opens
+      markNotificationsAsRead();
     }
   }, [isOpen]);
 
