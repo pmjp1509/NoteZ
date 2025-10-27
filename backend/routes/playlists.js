@@ -51,7 +51,13 @@ const authenticateToken = async (req, res, next) => {
       dbUser = newUser;
     }
 
-    req.user = { id: user.id, email: user.email, username: dbUser?.username || user.user_metadata?.user_name || user.email?.split('@')[0], dbUser };
+    req.user = { 
+      id: user.id, 
+      email: user.email, 
+      username: dbUser?.username || user.user_metadata?.user_name || user.email?.split('@')[0], 
+      role: dbUser?.role,
+      dbUser 
+    };
 
     next();
   } catch (error) {
@@ -749,5 +755,37 @@ router.put('/:id/songs/reorder', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// Get playlists by creator (for their own dashboard)
+router.get('/creator', authenticateToken, requireCreator, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const { data: playlists, error } = await supabase
+      .from('playlists')
+      .select('id, name, description, cover_url, is_public, created_at, updated_at')
+      .eq('creator_id', userId)
+      .eq('is_favorites', false)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching creator playlists:', error);
+      return res.status(500).json({ error: 'Failed to fetch playlists' });
+    }
+
+    res.json({ playlists: playlists || [] });
+  } catch (error) {
+    console.error('Get creator playlists error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Middleware to check if user is content creator
+function requireCreator(req, res, next) {
+  if (req.user?.role !== 'content_creator') {
+    return res.status(403).json({ error: 'Content creator access required' });
+  }
+  next();
+}
 
 module.exports = router;

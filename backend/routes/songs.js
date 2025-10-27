@@ -399,6 +399,47 @@ router.delete('/:id', authenticateToken, requireCreator, async (req, res) => {
   }
 });
 
+// Get songs by current creator (authenticated)
+router.get('/creator', authenticateToken, requireCreator, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    const { data: songs, error } = await supabase
+      .from('songs')
+      .select(`
+        *,
+        song_categories(name, color)
+      `)
+      .eq('creator_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching creator songs:', error);
+      return res.status(500).json({ error: 'Failed to fetch songs' });
+    }
+
+    res.json({
+      songs: songs.map(song => ({
+        id: song.id,
+        title: song.title,
+        artist: song.artist,
+        movie: song.movie,
+        category: song.song_categories,
+        audioUrl: song.audio_url,
+        coverUrl: song.cover_url,
+        duration: song.duration,
+        lyrics: song.lyrics,
+        isPublic: song.is_public,
+        createdAt: song.created_at,
+        analytics: song.song_analytics || []
+      }))
+    });
+  } catch (error) {
+    console.error('Get creator songs error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Get songs by creator
 router.get('/creator/:creatorId', async (req, res) => {
   try {

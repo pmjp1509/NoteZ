@@ -106,6 +106,77 @@ const tryAuthenticate = async (req, _res, next) => {
   return next();
 };
 
+// Get creator profile with stats (for content creators)
+router.get('/creator/me', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // Get user profile
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('id, email, username, full_name, avatar_url, bio, role, created_at')
+      .eq('id', userId)
+      .single();
+
+    if (userError || !user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Get followers count
+    const { count: followersCount } = await supabase
+      .from('user_follows')
+      .select('*', { count: 'exact', head: true })
+      .eq('followed_id', userId);
+
+    // Get creator stats
+    const { data: stats } = await supabase
+      .from('creator_stats')
+      .select('*')
+      .eq('creator_id', userId)
+      .single();
+
+    res.json({
+      profile: user,
+      followersCount: followersCount || 0,
+      stats: stats || {
+        total_songs: 0,
+        total_listens: 0,
+        total_favorites: 0,
+        monthly_listeners: 0
+      }
+    });
+  } catch (error) {
+    console.error('Get creator profile error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update creator profile
+router.put('/creator/profile', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { full_name, bio, avatar_url } = req.body;
+
+    const { data: user, error } = await supabase
+      .from('users')
+      .update({
+        full_name,
+        bio,
+        avatar_url,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId)
+      .select('id, email, username, full_name, avatar_url, bio, role, created_at')
+      .single();
+
+    if (error) return res.status(500).json({ error: 'Failed to update profile' });
+    res.json({ user });
+  } catch (error) {
+    console.error('Update creator profile error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Get current user profile
 router.get('/me', authenticateToken, async (req, res) => {
   try {

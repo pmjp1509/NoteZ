@@ -17,11 +17,13 @@ interface UserProfile {
   avatarUrl?: string;
   bio?: string;
   gender?: string;
+  role?: string;
 }
 
 export default function Dashboard() {
   const { currentUser, logout } = useAuth();
   const navigate = useNavigate();
+  const [userRole, setUserRole] = useState<string>('normal_user');
   
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SongItem[]>([]);
@@ -70,11 +72,14 @@ export default function Dashboard() {
 
   const fetchUserProfile = async () => {
     try {
-      console.log('🔍 Fetching user profile...');
       const data = await apiClient.get('/api/users/me');
-      console.log('✅ User profile data received:', data);
       setUserProfile(data.user);
-      console.log('📋 User profile state set:', data.user);
+      setUserRole(data.user?.role || 'normal_user');
+      
+      // Redirect to creator dashboard if role is content_creator
+      if (data.user?.role === 'content_creator') {
+        navigate('/creator');
+      }
     } catch (error) {
       console.error('❌ Failed to fetch user profile:', error);
     }
