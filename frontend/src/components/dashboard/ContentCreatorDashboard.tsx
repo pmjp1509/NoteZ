@@ -1,7 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus, Music, Album, ListMusic, User, Settings, Eye, Edit, Trash2 } from 'lucide-react';
+import { Plus, Music, Album, ListMusic, User, Settings, Eye, Edit, Trash2, Camera, Search, X, Bell, Play, ListPlus, Heart } from 'lucide-react';
+import { NotificationsPanel } from '@/components/dashboard/NotificationsPanel';
+import { BottomPlayer } from '@/components/dashboard/BottomPlayer';
+import { AddToPlaylistDialog } from '@/components/dashboard/AddToPlaylistDialog';
+import { useAuth } from '@/contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
+import { apiClient } from '@/lib/apiClient';
+import { normalizeSongItem, type SongItem } from '@/lib/songs';
+import { supabase } from '@/config/supabase';
 
 interface Song {
   id: string;
@@ -38,8 +46,8 @@ interface Playlist {
 interface CreatorProfile {
   id: string;
   username: string;
-  full_name?: string;
-  avatar_url?: string;
+  fullName?: string;
+  avatarUrl?: string;
   bio?: string;
   followersCount: number;
 }
@@ -73,7 +81,7 @@ export function ContentCreatorDashboard() {
   
   const [profileEditForm, setProfileEditForm] = useState({
     username: '',
-    full_name: '',
+    fullName: '',
     bio: ''
   });
   
@@ -103,6 +111,38 @@ export function ContentCreatorDashboard() {
 
   const token = localStorage.getItem('token');
 
+  // Search state (similar to user dashboard)
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SongItem[]>([]);
+  const [artistResults, setArtistResults] = useState<any[]>([]);
+  const [albumResults, setAlbumResults] = useState<any[]>([]);
+  const [playlistResults, setPlaylistResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showSearchResults, setShowSearchResults] = useState(false);
+  const [queue, setQueue] = useState<SongItem[]>([]);
+  const [likedIds, setLikedIds] = useState<Set<string>>(new Set());
+
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+  // Notifications panel
+  const [showNotificationsPanel, setShowNotificationsPanel] = useState(false);
+
+  // Player state
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [currentSong, setCurrentSong] = useState<any | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [progressPct, setProgressPct] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volumePct, setVolumePct] = useState(80);
+
+  // Edit album modal state
+  const [showEditAlbum, setShowEditAlbum] = useState(false);
+  const [editingAlbum, setEditingAlbum] = useState<Album | null>(null);
+  const [albumEditForm, setAlbumEditForm] = useState({ title: '', description: '', coverUrl: '', releaseDate: '', isPublic: true });
+  const [albumSongs, setAlbumSongs] = useState<any[]>([]); // songs currently in album
+  const [availableSongs, setAvailableSongs] = useState<Song[]>([]); // songs not in album
+  const [selectedSongIds, setSelectedSongIds] = useState<string[]>([]);
+
   useEffect(() => {
     fetchProfile();
     fetchSongs();
@@ -112,11 +152,77 @@ export function ContentCreatorDashboard() {
     fetchStats();
   }, []);
 
+  async function handleSearch() {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      setArtistResults([]);
+      setAlbumResults([]);
+      setPlaylistResults([]);
+      setShowSearchResults(false);
+      return;
+    }
+    setIsSearching(true);
+    try {
+      const [songsData, artistsData, albumsData, playlistsData] = await Promise.allSettled([
+        apiClient.get(`/api/songs?search=${encodeURIComponent(searchQuery)}`),
+        apiClient.get(`/api/users/search?q=${encodeURIComponent(searchQuery)}`),
+        apiClient.get(`/api/albums/search?q=${encodeURIComponent(searchQuery)}`),
+        apiClient.get(`/api/playlists/search?q=${encodeURIComponent(searchQuery)}`)
+      ]);
+
+      if (songsData.status === 'fulfilled') {
+        const mapped: SongItem[] = await Promise.all((songsData.value.songs || []).map(normalizeSongItem));
+        setSearchResults(mapped);
+      }
+
+      if (artistsData.status === 'fulfilled') {
+        const artists = artistsData.value;
+        setArtistResults(artists.creators || artists.users || artists.items || []);
+      }
+
+      if (albumsData.status === 'fulfilled') {
+        setAlbumResults(albumsData.value.albums || []);
+      }
+
+      if (playlistsData.status === 'fulfilled') {
+        setPlaylistResults(playlistsData.value.playlists || playlistsData.value.items || []);
+      }
+
+      setShowSearchResults(true);
+    } catch (error) {
+      console.error('Search failed:', error);
+      setSearchResults([]);
+      setArtistResults([]);
+      setAlbumResults([]);
+      setPlaylistResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  }
+
+  function clearSearch() {
+    setSearchQuery("");
+    setSearchResults([]);
+    setArtistResults([]);
+    setAlbumResults([]);
+    setPlaylistResults([]);
+    setShowSearchResults(false);
+  }
+
+  async function handleLogout() {
+    try {
+      await logout();
+      navigate('/login');
+    } catch (error) {
+      console.error('Failed to logout:', error);
+    }
+  }
+
   useEffect(() => {
     if (profile) {
       setProfileEditForm({
         username: profile.username || '',
-        full_name: profile.full_name || '',
+        fullName: (profile as any).fullName || '',
         bio: profile.bio || ''
       });
     }
@@ -164,7 +270,16 @@ export function ContentCreatorDashboard() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await response.json();
-      setAlbums(data.albums || []);
+      // Normalize backend snake_case fields to frontend camelCase
+      const albums = (data.albums || []).map((a: any) => ({
+        id: a.id,
+        title: a.title,
+        description: a.description,
+        coverUrl: a.cover_url || a.coverUrl || '',
+        createdAt: a.created_at || a.createdAt,
+        songCount: a.total_songs || a.song_count || a.songCount || 0
+      }));
+      setAlbums(albums);
     } catch (error) {
       console.error('Failed to fetch albums:', error);
     }
@@ -204,6 +319,318 @@ export function ContentCreatorDashboard() {
     }
   };
 
+  // Upload album cover to storage (use 'avatars' bucket only)
+  const uploadAlbumCoverToStorage = async (file: File) => {
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `album_${Date.now()}.${fileExt}`;
+      const bucket = 'avatars';
+      const filePath = `avatars/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage.from(bucket).upload(filePath, file, { upsert: true });
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      // get public URL
+      const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(filePath);
+      const publicUrl = publicData?.publicUrl || '';
+      if (!publicUrl) throw new Error('Failed to obtain public URL');
+      return publicUrl;
+    } catch (err) {
+      console.error('uploadAlbumCoverToStorage error:', err);
+      throw err;
+    }
+  };
+
+  // ------- Simple player integration for creators -------
+  useEffect(() => {
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+      audioRef.current.crossOrigin = 'anonymous';
+    }
+
+    const audio = audioRef.current;
+
+    const onTimeUpdate = () => {
+      if (!audio || !duration) return;
+      setProgressPct(duration ? (audio.currentTime / duration) * 100 : 0);
+    };
+
+    const onLoadedMeta = () => {
+      setDuration(audio.duration || 0);
+    };
+
+    const onEnded = () => {
+      setIsPlaying(false);
+      setProgressPct(0);
+    };
+
+    audio.addEventListener('timeupdate', onTimeUpdate);
+    audio.addEventListener('loadedmetadata', onLoadedMeta);
+    audio.addEventListener('ended', onEnded);
+
+    return () => {
+      audio.removeEventListener('timeupdate', onTimeUpdate);
+      audio.removeEventListener('loadedmetadata', onLoadedMeta);
+      audio.removeEventListener('ended', onEnded);
+    };
+  }, [duration]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = (volumePct || 0) / 100;
+    }
+  }, [volumePct]);
+
+  const playSong = async (song: any) => {
+    try {
+      const normalized = await normalizeSongItem(song as any);
+      setCurrentSong(normalized);
+      if (!audioRef.current) audioRef.current = new Audio();
+      audioRef.current!.src = normalized.audioUrl;
+      await audioRef.current!.play();
+      setIsPlaying(true);
+      setDuration(audioRef.current!.duration || 0);
+    } catch (err) {
+      console.error('Failed to play song:', err);
+      alert('Failed to play song');
+    }
+  };
+
+  const togglePlay = async () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      try {
+        await audioRef.current.play();
+        setIsPlaying(true);
+      } catch (err) {
+        console.error('Play error:', err);
+      }
+    }
+  };
+
+  const seekPct = (pct: number) => {
+    if (!audioRef.current || !duration) return;
+    const t = (pct / 100) * duration;
+    audioRef.current.currentTime = t;
+    setProgressPct(pct);
+  };
+
+  // Local UI state for add-to-playlist modal and selected song
+  const [selectedSong, setSelectedSong] = useState<any | null>(null);
+  const [showAddToPlaylist, setShowAddToPlaylist] = useState(false);
+
+  const addToQueue = async (song: any) => {
+    try {
+      const normalized = await normalizeSongItem(song as any);
+      setQueue(prev => [...prev, normalized]);
+    } catch (err) {
+      console.error('Failed to add to queue:', err);
+    }
+  };
+
+  const addToPlaylist = (song: any) => {
+    setSelectedSong(song);
+    setShowAddToPlaylist(true);
+  };
+
+  const toggleFavorite = async (song: any) => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      console.error('No auth token found');
+      return;
+    }
+    const songId = song?.id;
+    if (!songId) return;
+
+    const isLiked = likedIds.has(songId);
+    setLikedIds(prev => {
+      const next = new Set(prev);
+      if (isLiked) next.delete(songId); else next.add(songId);
+      return next;
+    });
+
+    try {
+      if (isLiked) {
+        const res = await fetch(`http://localhost:3001/api/favorites/${encodeURIComponent(songId)}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error('Failed to remove favorite');
+      } else {
+        const res = await fetch('http://localhost:3001/api/favorites', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ songId })
+        });
+        if (!res.ok) throw new Error('Failed to add favorite');
+      }
+    } catch (err) {
+      console.error('Favorite toggle failed:', err);
+    }
+  };
+
+  // Listen for global UI events (some shared components dispatch these)
+  useEffect(() => {
+    const handleAddToQueue = async (event: CustomEvent) => {
+      const song = event.detail as any;
+      if (song) await addToQueue(song);
+    };
+
+    const handleOpenAddToPlaylist = (event: CustomEvent) => {
+      const song = event.detail as any;
+      if (song) addToPlaylist(song);
+    };
+
+    const handleToggleLike = (event: CustomEvent) => {
+      const song = event.detail as any;
+      if (song) toggleFavorite(song);
+    };
+
+  window.addEventListener('addToQueue', handleAddToQueue as unknown as EventListener);
+  window.addEventListener('openAddToPlaylist', handleOpenAddToPlaylist as unknown as EventListener);
+  window.addEventListener('toggleLike', handleToggleLike as unknown as EventListener);
+
+    return () => {
+  window.removeEventListener('addToQueue', handleAddToQueue as unknown as EventListener);
+  window.removeEventListener('openAddToPlaylist', handleOpenAddToPlaylist as unknown as EventListener);
+  window.removeEventListener('toggleLike', handleToggleLike as unknown as EventListener);
+    };
+  }, []);
+
+  const changeVolumePct = (v: number) => {
+    setVolumePct(v);
+    if (audioRef.current) audioRef.current.volume = v / 100;
+  };
+
+  const playPrev = () => {
+    if (!currentSong) return;
+    const idx = songs.findIndex(s => s.id === (currentSong as any).id);
+    if (idx > 0) playSong(songs[idx - 1]);
+  };
+
+  const playNext = () => {
+    if (!currentSong) return;
+    const idx = songs.findIndex(s => s.id === (currentSong as any).id);
+    if (idx >= 0 && idx < songs.length - 1) playSong(songs[idx + 1]);
+  };
+
+  // Open edit album modal and load album songs
+  const openEditAlbum = async (album: Album) => {
+    try {
+      setEditingAlbum(album);
+      setAlbumEditForm({
+        title: album.title || '',
+        description: album.description || '',
+        coverUrl: album.coverUrl || '',
+        releaseDate: album.createdAt ? String(album.createdAt).split('T')[0] : '',
+        isPublic: true
+      });
+
+      // Fetch songs in album
+      const token = localStorage.getItem('token');
+      const resp = await fetch(`http://localhost:3001/api/albums/${album.id}/songs`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      let albumSongIds: string[] = [];
+      if (resp.ok) {
+        const data = await resp.json();
+        setAlbumSongs(data.songs || []);
+        albumSongIds = (data.songs || []).map((s: any) => s.id);
+      }
+
+      // compute available songs (those not in album)
+      const avail = songs.filter(s => !albumSongIds.includes(s.id));
+      setAvailableSongs(avail);
+      setSelectedSongIds([]);
+      setShowEditAlbum(true);
+    } catch (error) {
+      console.error('Failed to open edit album:', error);
+      alert('Failed to load album details');
+    }
+  };
+
+  const handleAlbumSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingAlbum) return;
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:3001/api/albums/${editingAlbum.id}`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: albumEditForm.title,
+          description: albumEditForm.description,
+          cover_url: albumEditForm.coverUrl,
+          release_date: albumEditForm.releaseDate || null,
+          isPublic: albumEditForm.isPublic
+        })
+      });
+
+      if (response.ok) {
+        alert('Album updated');
+        setShowEditAlbum(false);
+        fetchAlbums();
+      } else {
+        const err = await response.json();
+        alert(err.error || 'Failed to update album');
+      }
+    } catch (error) {
+      console.error('Update album error:', error);
+      alert('Failed to update album');
+    }
+  };
+
+  const handleAddSongsToAlbum = async () => {
+    if (!editingAlbum || selectedSongIds.length === 0) return;
+    try {
+      const token = localStorage.getItem('token');
+      // Add songs sequentially or in parallel
+      await Promise.all(selectedSongIds.map(id =>
+        fetch(`http://localhost:3001/api/albums/${editingAlbum.id}/songs`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ songId: id })
+        })
+      ));
+      alert('Songs added to album');
+      // refresh
+      fetchAlbums();
+      setShowEditAlbum(false);
+    } catch (error) {
+      console.error('Failed to add songs to album:', error);
+      alert('Failed to add songs to album');
+    }
+  };
+
+  const handleRemoveSongFromAlbum = async (songId: string) => {
+    if (!editingAlbum) return;
+    if (!confirm('Remove this song from the album?')) return;
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:3001/api/albums/${editingAlbum.id}/songs/${songId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        // remove locally
+        setAlbumSongs(prev => prev.filter(s => s.id !== songId));
+        alert('Song removed from album');
+      } else {
+        const err = await response.json().catch(() => ({}));
+        alert(err.error || 'Failed to remove song');
+      }
+    } catch (error) {
+      console.error('Failed to remove song from album:', error);
+      alert('Failed to remove song from album');
+    }
+  };
+
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!uploadForm.audioFile || !uploadForm.title || !uploadForm.artist || !uploadForm.categoryId) {
@@ -222,6 +649,7 @@ export function ContentCreatorDashboard() {
     formData.append('isPublic', uploadForm.isPublic.toString());
 
     try {
+      console.log('Uploading with form data:', Object.fromEntries(formData.entries()));
       const response = await fetch('http://localhost:3001/api/songs/upload', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
@@ -236,11 +664,12 @@ export function ContentCreatorDashboard() {
         fetchStats();
       } else {
         const error = await response.json();
-        alert(error.error || 'Upload failed');
+        console.error('Upload failed:', error);
+        alert(`Upload failed: ${error.error || 'Unknown error'}`);
       }
     } catch (error) {
       console.error('Upload error:', error);
-      alert('Upload failed');
+      alert(`Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsUploading(false);
     }
@@ -284,7 +713,7 @@ export function ContentCreatorDashboard() {
         },
         body: JSON.stringify({
           username: profileEditForm.username,
-          fullName: profileEditForm.full_name,
+          fullName: profileEditForm.fullName,
           bio: profileEditForm.bio
         })
       });
@@ -368,20 +797,20 @@ export function ContentCreatorDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-6 pb-28">
       {/* Profile Section */}
       {profile && (
         <Card className="bg-black/40 border-white/20 mb-6">
           <CardContent className="p-6">
             <div className="flex items-center gap-6">
               <img 
-                src={profile.avatar_url || '/default-avatar.png'} 
+                src={profile.avatarUrl || '/default-avatar.png'} 
                 alt={profile.username}
                 className="w-20 h-20 rounded-full"
               />
               <div className="flex-1">
                 <h2 className="text-2xl font-bold text-white">{profile.username}</h2>
-                {profile.full_name && <p className="text-gray-400">{profile.full_name}</p>}
+                {profile.fullName && <p className="text-gray-400">{profile.fullName}</p>}
                 {profile.bio && <p className="text-sm text-gray-300 mt-2">{profile.bio}</p>}
                 <div className="flex items-center gap-4 mt-3">
                   <span className="text-sm text-gray-400">
@@ -389,14 +818,249 @@ export function ContentCreatorDashboard() {
                   </span>
                 </div>
         </div>
-              <Button variant="outline" className="border-white/20 text-white" onClick={() => setShowProfileEdit(true)}>
-                <Settings className="w-4 h-4 mr-2" />
-                Edit Profile
-              </Button>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" size="icon" onClick={() => setShowNotificationsPanel(true)} className="text-white/60 hover:text-white">
+                    <Bell className="w-5 h-5" />
+                  </Button>
+                  <Button variant="outline" className="border-white/20 text-white" onClick={() => setShowProfileEdit(true)}>
+                    <Settings className="w-4 h-4 mr-2" />
+                    Edit Profile
+                  </Button>
+                </div>
+                <Button variant="outline" className="border-white/20 text-white" onClick={handleLogout}>
+                  Sign Out
+                </Button>
+              </div>
       </div>
           </CardContent>
         </Card>
       )}
+
+      {/* Edit Album Modal */}
+      {showEditAlbum && editingAlbum && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[9999]">
+          <Card className="w-full max-w-3xl bg-black/90 border-white/30">
+            <CardHeader>
+              <CardTitle className="text-white">Edit Album</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleAlbumSave} className="space-y-4">
+                <input
+                  type="text"
+                  placeholder="Album Title *"
+                  value={albumEditForm.title}
+                  onChange={(e) => setAlbumEditForm(prev => ({ ...prev, title: e.target.value }))}
+                  className="w-full p-2 bg-white/5 border border-white/20 rounded text-white"
+                  required
+                />
+                <textarea
+                  placeholder="Description"
+                  value={albumEditForm.description}
+                  onChange={(e) => setAlbumEditForm(prev => ({ ...prev, description: e.target.value }))}
+                  rows={3}
+                  className="w-full p-2 bg-white/5 border border-white/20 rounded text-white"
+                />
+                <input
+                  type="text"
+                  placeholder="Cover Image URL"
+                  value={albumEditForm.coverUrl}
+                  onChange={(e) => setAlbumEditForm(prev => ({ ...prev, coverUrl: e.target.value }))}
+                  className="w-full p-2 bg-white/5 border border-white/20 rounded text-white"
+                />
+                <div className="mt-2">
+                  <label className="cursor-pointer inline-flex items-center gap-2 text-sm text-gray-400">
+                    <Camera className="w-4 h-4" />
+                    <span>Upload cover image</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        try {
+                          const publicUrl = await uploadAlbumCoverToStorage(file);
+                          setAlbumEditForm(prev => ({ ...prev, coverUrl: publicUrl }));
+                        } catch (err) {
+                          console.error('Failed to upload album cover:', err);
+                          alert('Failed to upload album cover');
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+                <input
+                  type="date"
+                  placeholder="Release Date"
+                  value={albumEditForm.releaseDate}
+                  onChange={(e) => setAlbumEditForm(prev => ({ ...prev, releaseDate: e.target.value }))}
+                  className="w-full p-2 bg-white/5 border border-white/20 rounded text-white"
+                />
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="albumEditPublic"
+                    checked={albumEditForm.isPublic}
+                    onChange={(e) => setAlbumEditForm(prev => ({ ...prev, isPublic: e.target.checked }))}
+                  />
+                  <label htmlFor="albumEditPublic" className="text-white">Make album public</label>
+                </div>
+
+                {/* Songs management */}
+                <div className="mt-4">
+                  <h4 className="text-white font-medium mb-2">Album songs</h4>
+                  {albumSongs.length > 0 && (
+                    <div className="mb-3 p-2 bg-white/5 rounded max-h-28 overflow-auto">
+                      {albumSongs.map((s: any) => (
+                        <div key={s.id} className="flex items-center justify-between text-gray-200 text-sm py-1">
+                          <div>{s.title || s.name}</div>
+                          <div>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveSongFromAlbum(s.id)}
+                              className="text-xs text-red-400 hover:text-red-300"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <h4 className="text-white font-medium mb-2">Add songs to album</h4>
+                  {availableSongs.length === 0 ? (
+                    <div className="text-gray-400">No available songs to add</div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-auto p-2 bg-white/5 rounded">
+                      {availableSongs.map(s => (
+                        <label key={s.id} className="flex items-center gap-2 p-2">
+                          <input type="checkbox" value={s.id} checked={selectedSongIds.includes(s.id)} onChange={(e) => {
+                            const id = e.target.value;
+                            setSelectedSongIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+                          }} />
+                          <div className="text-white">{s.title}</div>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex gap-2 mt-3">
+                    <Button type="button" onClick={handleAddSongsToAlbum} className="bg-purple-500">Add Selected</Button>
+                    <Button type="submit" className="bg-green-600">Save Changes</Button>
+                    <Button type="button" variant="outline" onClick={() => setShowEditAlbum(false)}>Cancel</Button>
+                  </div>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Search bar (creator) */}
+      <div className="flex justify-center mb-6">
+        <div className="w-full max-w-2xl mx-0">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search songs, artists, or albums..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
+              className="w-full pl-10 pr-24 py-2 bg-white/5 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            />
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2">
+              {searchQuery && (
+                <button onClick={clearSearch} className="p-1.5 text-gray-400 hover:text-white transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+              <button
+                aria-label="Search"
+                onClick={handleSearch}
+                disabled={isSearching}
+                className="px-3 py-1.5 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-md transition-all disabled:opacity-50"
+              >
+                <Search className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+      {showSearchResults && (
+            <div className="mt-3 bg-black/70 border border-white/10 rounded-lg max-h-72 overflow-auto p-3">
+              {searchResults.length === 0 && artistResults.length === 0 && albumResults.length === 0 && (
+                <div className="text-gray-400">No results found</div>
+              )}
+
+              {searchResults.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-sm text-gray-300 font-medium">Songs</h4>
+                  {searchResults.map(s => (
+                    <div
+                      key={s.id || s.path}
+                      onClick={() => playSong(s)}
+                      className="p-2 rounded hover:bg-white/5 cursor-pointer"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-white font-medium">{s.name}</div>
+                          {s.movie && <div className="text-xs text-gray-400">{s.movie}</div>}
+                        </div>
+                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                          <button aria-label="Add to queue" className="w-8 h-8 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition" onClick={() => setQueue(prev => [...prev, s])}>
+                            <Plus className="w-4 h-4" />
+                          </button>
+                          <button aria-label="Add to playlist" className="w-8 h-8 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition" onClick={() => alert('Add to playlist - not implemented yet')}>
+                            <ListPlus className="w-4 h-4" />
+                          </button>
+                          <button aria-label="Like" className={`w-8 h-8 flex items-center justify-center rounded-md transition ${s.id && likedIds.has(s.id) ? 'bg-pink-600/20 text-pink-400' : 'bg-white/10 hover:bg-white/15 text-white'}`} onClick={() => {
+                            if (!s.id) return;
+                            const id = s.id;
+                            setLikedIds(prev => {
+                              const next = new Set(prev);
+                              if (next.has(id)) next.delete(id); else next.add(id);
+                              return next;
+                            });
+                          }}>
+                            <Heart className={`w-4 h-4 ${s.id && likedIds.has(s.id) ? 'fill-pink-500' : ''}`} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {artistResults.length > 0 && (
+                <div className="mt-3">
+                  <h4 className="text-sm text-gray-300 font-medium">Artists</h4>
+                  {artistResults.map((a: any) => (
+                    <div key={a.id || a.username} className="p-2 rounded hover:bg-white/5 text-gray-200">{a.name || a.username}</div>
+                  ))}
+                </div>
+              )}
+
+              {albumResults.length > 0 && (
+                <div className="mt-3">
+                  <h4 className="text-sm text-gray-300 font-medium">Albums</h4>
+                  {albumResults.map((al: any) => (
+                    <div key={al.id} className="p-2 rounded hover:bg-white/5 text-gray-200">{al.title || al.name}</div>
+                  ))}
+                </div>
+              )}
+              {playlistResults.length > 0 && (
+                <div className="mt-3">
+                  <h4 className="text-sm text-gray-300 font-medium">Playlists</h4>
+                  {playlistResults.map((pl: any) => (
+                    <div key={pl.id || pl.name} className="p-2 rounded hover:bg-white/5 text-gray-200">{pl.title || pl.name}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Stats */}
       {stats && (
@@ -513,6 +1177,9 @@ export function ContentCreatorDashboard() {
                         </div>
                       </div>
                       <div className="flex gap-2">
+                        <Button size="sm" variant="outline" className="border-white/20" onClick={() => playSong(song)}>
+                          <Play className="w-4 h-4" />
+                        </Button>
                         <Button size="sm" variant="outline" className="border-white/20">
                           <Edit className="w-4 h-4" />
                         </Button>
@@ -548,6 +1215,14 @@ export function ContentCreatorDashboard() {
                       <img src={album.coverUrl || '/placeholder-album.jpg'} alt={album.title} className="w-full aspect-square rounded-lg mb-2" />
                       <h4 className="text-white font-medium">{album.title}</h4>
                       <p className="text-sm text-gray-400">{album.songCount} songs</p>
+                      <div className="flex gap-2 mt-3">
+                        <Button size="sm" variant="outline" className="border-white/20" onClick={() => openEditAlbum(album)}>
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button size="sm" variant="outline" className="border-white/20" onClick={() => openEditAlbum(album)}>
+                          View
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -587,7 +1262,7 @@ export function ContentCreatorDashboard() {
 
       {/* Upload Form */}
       {showUploadForm && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[9999]">
           <Card className="w-full max-w-2xl bg-black/90 border-white/30">
           <CardHeader>
             <CardTitle className="text-white">Upload New Song</CardTitle>
@@ -662,7 +1337,7 @@ export function ContentCreatorDashboard() {
 
       {/* Edit Profile Modal */}
       {showProfileEdit && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[9999]">
           <Card className="w-full max-w-2xl bg-black/90 border-white/30">
             <CardHeader>
               <CardTitle className="text-white">Edit Profile</CardTitle>
@@ -677,11 +1352,83 @@ export function ContentCreatorDashboard() {
                   className="w-full p-2 bg-white/5 border border-white/20 rounded text-white"
                   required
                 />
+                {/* Avatar Upload */}
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-white mb-2">Profile Photo</label>
+                  <div className="flex items-center space-x-4">
+                    <div className="relative group">
+                      <div className="w-24 h-24 rounded-full overflow-hidden bg-white/5 border border-white/20">
+                        {profile?.avatarUrl ? (
+                          <img
+                            src={profile.avatarUrl}
+                            alt="Profile"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <User className="w-12 h-12 text-gray-400" />
+                          </div>
+                        )}
+                        {/* Upload overlay */}
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <label className="cursor-pointer">
+                            <Camera className="w-8 h-8 text-white" />
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (!file || !profile) return;
+
+                                try {
+                                  const fileExt = file.name.split('.').pop();
+                                  const fileName = `${profile.id}_${Date.now()}.${fileExt}`;
+                                  const filePath = `avatars/${fileName}`;
+
+                                  // Upload to Supabase Storage
+                                  const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, file, { upsert: true });
+                                  if (uploadError) throw uploadError;
+
+                                  // Get public URL
+                                  const { data: publicData } = supabase.storage.from('avatars').getPublicUrl(filePath);
+                                  const publicUrl = publicData?.publicUrl || '';
+
+                                  if (!publicUrl) throw new Error('Failed to obtain public URL');
+
+                                  // Update user's avatarUrl in DB directly via Supabase
+                                  const { error: updateError } = await supabase
+                                    .from('users')
+                                    .update({ avatar_url: publicUrl })
+                                    .eq('id', profile.id);
+
+                                  if (updateError) {
+                                    throw new Error('Failed to update avatar in database: ' + updateError.message);
+                                  }
+
+                                  fetchProfile(); // Refresh profile to show new avatar
+                                } catch (error) {
+                                  console.error('Failed to upload avatar to Supabase:', error);
+                                  alert('Failed to upload avatar');
+                                }
+                              }}
+                              className="hidden"
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm text-gray-400">Upload a new profile photo</p>
+                      <p className="text-xs text-gray-500 mt-1">Recommended: Square image, at least 400x400px</p>
+                    </div>
+                  </div>
+                </div>
+
                 <input
                   type="text"
                   placeholder="Full Name"
-                  value={profileEditForm.full_name}
-                  onChange={(e) => setProfileEditForm(prev => ({ ...prev, full_name: e.target.value }))}
+                  value={profileEditForm.fullName}
+                  onChange={(e) => setProfileEditForm(prev => ({ ...prev, fullName: e.target.value }))}
                   className="w-full p-2 bg-white/5 border border-white/20 rounded text-white"
                 />
                 <textarea
@@ -701,9 +1448,21 @@ export function ContentCreatorDashboard() {
         </div>
       )}
 
+      {/* Notifications Panel (overlay) */}
+      {showNotificationsPanel && (
+        <NotificationsPanel
+          isOpen={showNotificationsPanel}
+          onClose={() => setShowNotificationsPanel(false)}
+          onFriendRequestAction={() => {
+            // Refresh counts/data if needed
+            fetchProfile();
+          }}
+        />
+      )}
+
       {/* Create Album Modal */}
       {showCreateAlbum && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[9999]">
           <Card className="w-full max-w-2xl bg-black/90 border-white/30">
             <CardHeader>
               <CardTitle className="text-white">Create Album</CardTitle>
@@ -732,6 +1491,28 @@ export function ContentCreatorDashboard() {
                   onChange={(e) => setAlbumForm(prev => ({ ...prev, coverUrl: e.target.value }))}
                   className="w-full p-2 bg-white/5 border border-white/20 rounded text-white"
                 />
+                <div className="mt-2">
+                  <label className="cursor-pointer inline-flex items-center gap-2 text-sm text-gray-400">
+                    <Camera className="w-4 h-4" />
+                    <span>Upload cover image</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        try {
+                          const publicUrl = await uploadAlbumCoverToStorage(file);
+                          setAlbumForm(prev => ({ ...prev, coverUrl: publicUrl }));
+                        } catch (err) {
+                          console.error('Failed to upload album cover:', err);
+                          alert('Failed to upload album cover');
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
                 <input
                   type="date"
                   placeholder="Release Date"
@@ -760,7 +1541,7 @@ export function ContentCreatorDashboard() {
 
       {/* Create Playlist Modal */}
       {showCreatePlaylist && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[9999]">
           <Card className="w-full max-w-2xl bg-black/90 border-white/30">
             <CardHeader>
               <CardTitle className="text-white">Create Playlist</CardTitle>
@@ -800,6 +1581,32 @@ export function ContentCreatorDashboard() {
           </Card>
         </div>
       )}
+
+      {/* Add to playlist dialog (shared) */}
+      <AddToPlaylistDialog
+        isOpen={showAddToPlaylist}
+        onClose={() => { setShowAddToPlaylist(false); setSelectedSong(null); }}
+        songPath={selectedSong?.id || ''}
+      />
+
+      {/* Bottom player for creator - allows basic listening */}
+      <BottomPlayer
+        song={currentSong}
+        isPlaying={isPlaying}
+        progressPct={progressPct}
+        duration={duration}
+        volumePct={volumePct}
+        onTogglePlay={togglePlay}
+        onSeekPct={seekPct}
+        onVolumePct={changeVolumePct}
+        onPrev={playPrev}
+        onNext={playNext}
+        onToggleFavorite={() => toggleFavorite(currentSong)}
+        onAddToPlaylist={() => addToPlaylist(currentSong)}
+        onToggleQueue={() => { console.log('Toggle queue clicked'); }}
+        onShowLyrics={() => window.dispatchEvent(new CustomEvent('showLyrics', { detail: { lyrics: currentSong?.lyrics, title: (currentSong as any)?.title || (currentSong as any)?.name, artist: (currentSong as any)?.artist } }))}
+        queueLength={queue.length}
+      />
     </div>
   );
 }

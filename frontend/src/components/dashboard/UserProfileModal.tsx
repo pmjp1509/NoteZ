@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { X, Camera, Save, User, Mail, Edit3, Loader2 } from 'lucide-react';
+import { useToast } from '@/hooks/useToast';
 
 interface UserProfile {
   id: string;
@@ -31,6 +32,7 @@ export function UserProfileModal({ isOpen, onClose, user, onUpdate }: UserProfil
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const { addToast } = useToast();
 
   useEffect(() => {
     if (isOpen) {
@@ -82,6 +84,8 @@ export function UserProfileModal({ isOpen, onClose, user, onUpdate }: UserProfil
       }
 
       setSuccess('Profile updated successfully!');
+      // show global toast
+      addToast({ message: 'Profile updated successfully!', type: 'success' });
       onUpdate({
         username: formData.username,
         fullName: formData.fullName,
@@ -93,7 +97,9 @@ export function UserProfileModal({ isOpen, onClose, user, onUpdate }: UserProfil
       setTimeout(() => setSuccess(''), 3000);
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update profile');
+      const message = err instanceof Error ? err.message : 'Failed to update profile';
+      setError(message);
+      addToast({ message, type: 'error' });
     } finally {
       setIsLoading(false);
     }
@@ -127,13 +133,16 @@ export function UserProfileModal({ isOpen, onClose, user, onUpdate }: UserProfil
       }
 
       setSuccess('Avatar updated successfully!');
+      addToast({ message: 'Avatar updated successfully!', type: 'success' });
       onUpdate({ avatarUrl: data.avatarUrl });
 
       // Clear success message after 3 seconds
       setTimeout(() => setSuccess(''), 3000);
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to upload avatar');
+      const message = err instanceof Error ? err.message : 'Failed to upload avatar';
+      setError(message);
+      addToast({ message, type: 'error' });
     } finally {
       setIsUploading(false);
     }

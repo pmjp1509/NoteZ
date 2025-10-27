@@ -91,7 +91,14 @@ router.post('/upload', authenticateToken, requireCreator, upload.single('audio')
     }
 
     // Upload audio file to Supabase Storage
-    const fileName = `${Date.now()}-${audioFile.originalname}`;
+    // Sanitize filename by removing special characters and spaces
+    const sanitizedName = audioFile.originalname
+      .replace(/[\[\]{}()*+?.,\\^$|#\s]/g, '_')
+      .replace(/-+/g, '-');
+    const fileName = `${Date.now()}-${sanitizedName}`;
+    
+    console.log('Uploading file with sanitized name:', fileName);
+    
     const { data: audioData, error: audioError } = await supabase.storage
       .from('songs')
       .upload(fileName, audioFile.buffer, {
@@ -100,7 +107,11 @@ router.post('/upload', authenticateToken, requireCreator, upload.single('audio')
       });
 
     if (audioError) {
-      return res.status(500).json({ error: 'Failed to upload audio file' });
+      console.error('Supabase storage upload error:', audioError);
+      return res.status(500).json({ 
+        error: 'Failed to upload audio file', 
+        details: audioError.message || audioError 
+      });
     }
 
     // Get public URL for audio
@@ -153,6 +164,44 @@ router.post('/upload', authenticateToken, requireCreator, upload.single('audio')
   } catch (error) {
     console.error('Song upload error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get songs for a content creator
+router.get('/creator', authenticateToken, requireCreator, async (req, res) => {
+  try {
+    const { data: songs, error } = await supabase
+      .from('songs')
+      .select(`
+        *,
+        song_categories(name, color),
+        users(username, full_name, avatar_url)
+      `)
+      .eq('creator_id', req.user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching creator songs:', error);
+      return res.status(500).json({ error: 'Failed to fetch songs' });
+    }
+
+    res.json({
+      songs: songs.map(song => ({
+        id: song.id,
+        title: song.title,
+        artist: song.artist,
+        movie: song.movie,
+        category: song.song_categories,
+        audioUrl: song.audio_url,
+        lyrics: song.lyrics,
+        isPublic: song.is_public,
+        createdAt: song.created_at,
+        analytics: song.analytics || []
+      }))
+    });
+  } catch (error) {
+    console.error('Error fetching creator songs:', error);
+    res.status(500).json({ error: 'Failed to fetch songs' });
   }
 });
 

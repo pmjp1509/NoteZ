@@ -37,9 +37,7 @@ interface NotificationsPanelProps {
 export function NotificationsPanel({ isOpen, onClose, onFriendRequestAction }: NotificationsPanelProps) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [friendRequests, setFriendRequests] = useState<FriendRequest[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'notifications' | 'requests'>('notifications');
-  const [hasLoaded, setHasLoaded] = useState(false);
   const fetchingRef = useRef(false);
 
   // Only fetch when panel opens AND hasn't loaded before, or needs refresh
@@ -50,7 +48,6 @@ export function NotificationsPanel({ isOpen, onClose, onFriendRequestAction }: N
         fetchNotifications(),
         fetchFriendRequests()
       ]).finally(() => {
-        setHasLoaded(true);
         fetchingRef.current = false;
       });
     }
@@ -64,19 +61,19 @@ export function NotificationsPanel({ isOpen, onClose, onFriendRequestAction }: N
       console.log('📨 Raw notifications data:', data);
       
       // Filter out friend_request notifications - they should only appear in Friend Requests tab
-      const allNotifications = data.notifications || [];
+  const allNotifications: Notification[] = data.notifications || [];
       console.log('📨 All notifications received:', allNotifications.length, allNotifications);
       
-      const friendRequestNotifs = allNotifications.filter(n => n.type === 'friend_request');
-      const friendRequestResponseNotifs = allNotifications.filter(n => n.type === 'friend_request_response');
-      const regularNotifications = allNotifications.filter(n => n.type !== 'friend_request');
+  const friendRequestNotifs = allNotifications.filter((n: Notification) => n.type === 'friend_request');
+  const friendRequestResponseNotifs = allNotifications.filter((n: Notification) => n.type === 'friend_request_response');
+  const regularNotifications = allNotifications.filter((n: Notification) => n.type !== 'friend_request');
       
       console.log('📨 Friend request notifications:', friendRequestNotifs.length, friendRequestNotifs);
       console.log('📨 Friend request response notifications:', friendRequestResponseNotifs.length, friendRequestResponseNotifs);
       console.log('📨 Regular notifications (after filtering):', regularNotifications.length, regularNotifications);
       
       // Log notification types
-      const types = [...new Set(allNotifications.map(n => n.type))];
+  const types = [...new Set(allNotifications.map((n: Notification) => n.type))];
       console.log('📨 All notification types found:', types);
       
       setNotifications(regularNotifications);
@@ -123,10 +120,9 @@ export function NotificationsPanel({ isOpen, onClose, onFriendRequestAction }: N
     console.log(`Attempting to ${action} friend request from notification. Related ID:`, relatedId);
     
     try {
-      const token = localStorage.getItem('token');
-      
-      // Find the friend request to get sender info
+      // Find the friend request to get sender info (for logging)
       const friendRequest = friendRequests.find(req => req.id === relatedId);
+      console.log('Related friend request found:', friendRequest);
       
       // Use API client for the request
       const data = await apiClient.put(`/api/friends/requests/${relatedId}`, { action });
@@ -160,10 +156,9 @@ export function NotificationsPanel({ isOpen, onClose, onFriendRequestAction }: N
     console.log(`Attempting to ${action} friend request:`, requestId);
     
     try {
-      const token = localStorage.getItem('token');
-      
-      // Find the friend request to get sender info
+      // Find the friend request to get sender info (for logging)
       const friendRequest = friendRequests.find(req => req.id === requestId);
+      console.log('Processing friend request:', friendRequest);
       
       const data = await apiClient.put(`/api/friends/requests/${requestId}`, { action });
       console.log(`${action} response:`, data);
@@ -250,7 +245,7 @@ export function NotificationsPanel({ isOpen, onClose, onFriendRequestAction }: N
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <Card className="w-full max-w-2xl max-h-[90vh] overflow-hidden bg-black/30 border-white/10">
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 border-b border-white/10">
           <div className="flex items-center space-x-3">
