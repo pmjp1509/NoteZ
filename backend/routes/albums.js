@@ -283,7 +283,7 @@ router.get('/search', tryAuthenticate, async (req, res) => {
       return res.status(400).json({ error: 'Search query is required' });
     }
 
-    // Build query to search albums and include creator info
+    // Build query to search albums and include creator info and song count
     let query = supabase
       .from('albums')
       .select(`
@@ -300,7 +300,8 @@ router.get('/search', tryAuthenticate, async (req, res) => {
           username,
           full_name,
           avatar_url
-        )
+        ),
+        songs(count)
       `)
       .eq('is_public', true)
       .or(`title.ilike.%${q}%,description.ilike.%${q}%`)
@@ -309,13 +310,34 @@ router.get('/search', tryAuthenticate, async (req, res) => {
 
     const { data: albums, error, count } = await query;
 
+    // Ensure song counts are accurate like in /creator endpoint
+    const enhancedAlbums = await Promise.all((albums || []).map(async (alb) => {
+      let computedCount = alb.total_songs || 0;
+      if (!computedCount || computedCount === 0) {
+        try {
+          const { count } = await supabase
+            .from('album_songs')
+            .select('id', { count: 'exact', head: true })
+            .eq('album_id', alb.id);
+          computedCount = count || 0;
+        } catch (e) {
+          computedCount = 0;
+        }
+      }
+      return {
+        ...alb,
+        total_songs: computedCount,
+        songs: [{ count: computedCount }]
+      };
+    }));
+
     if (error) {
       console.error('Album search error:', error);
       return res.status(500).json({ error: 'Failed to search albums' });
     }
 
     res.json({
-      albums: albums.map(album => ({
+      albums: enhancedAlbums.map(album => ({
         id: album.id,
         title: album.title,
         description: album.description,
