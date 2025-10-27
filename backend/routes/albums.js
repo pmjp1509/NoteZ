@@ -52,14 +52,43 @@ const requireCreator = (req, res, next) => {
 // Get creator's albums
 router.get('/creator', authenticateToken, requireCreator, async (req, res) => {
   try {
+    // First get albums
     const { data: albums, error } = await supabase
       .from('albums')
-      .select('*, users!creator_id(username, avatar_url)')
+      .select(`
+        *,
+        users!creator_id(username, avatar_url),
+        song_count:songs(count)
+      `)
       .eq('creator_id', req.user.id)
       .order('created_at', { ascending: false });
 
     if (error) return res.status(500).json({ error: 'Failed to fetch albums' });
-    res.json({ albums });
+
+    // Ensure song counts are accurate. Prefer total_songs (maintained by DB triggers),
+    // but if it's zero or missing, compute a fallback count from album_songs.
+    const enhancedAlbums = await Promise.all((albums || []).map(async (alb) => {
+      let computedCount = alb.total_songs || 0;
+      if (!computedCount || computedCount === 0) {
+        try {
+          const { count } = await supabase
+            .from('album_songs')
+            .select('id', { count: 'exact', head: true })
+            .eq('album_id', alb.id);
+          computedCount = count || 0;
+        } catch (e) {
+          computedCount = 0;
+        }
+      }
+      // Keep compatibility with frontend expectations: provide song_count as array with count
+      return {
+        ...alb,
+        total_songs: computedCount,
+        song_count: [{ count: computedCount }]
+      };
+    }));
+
+    res.json({ albums: enhancedAlbums });
   } catch (error) {
     console.error('Get creator albums error:', error);
     res.status(500).json({ error: 'Internal server error' });

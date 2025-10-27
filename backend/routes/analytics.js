@@ -61,6 +61,14 @@ router.get('/creator', authenticateToken, requireCreator, async (req, res) => {
       return res.status(500).json({ error: 'Failed to fetch creator stats' });
     }
 
+    // Get total listen count across all songs
+    const { data: listenStats, error: listenError } = await supabase
+      .from('song_analytics')
+      .select('play_count')
+      .eq('creator_id', userId);
+
+    const totalListens = listenStats?.reduce((sum, stat) => sum + (stat.play_count || 0), 0) || 0;
+
     // Get songs with analytics
     const { data: songs, error: songsError } = await supabase
       .from('songs')
@@ -96,6 +104,7 @@ router.get('/creator', authenticateToken, requireCreator, async (req, res) => {
       const totalDuration = analytics.reduce((sum, a) => sum + (a.listen_duration || 0), 0);
       
       return {
+        totalListens,
         totalPlays: acc.totalPlays + totalPlays,
         totalDuration: acc.totalDuration + totalDuration,
         songCount: acc.songCount + 1

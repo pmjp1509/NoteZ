@@ -79,4 +79,53 @@ router.get('/creator', authenticateToken, requireCreator, (req, res) => {
     });
 });
 
+// Get current user's playlists (including Favorites)
+router.get('/me', authenticateToken, async (req, res) => {
+  try {
+    // Ensure favorites playlist exists for the user (creates if missing)
+    try {
+      await supabase.rpc('ensure_favorites_playlist', { p_user_id: req.user.id });
+    } catch (e) {
+      // non-fatal: continue, we'll still attempt to fetch playlists
+      console.warn('ensure_favorites_playlist RPC warning:', e?.message || e);
+    }
+
+    const { data: playlists, error } = await supabase
+      .from('playlists')
+      .select(`
+        id,
+        name,
+        description,
+        cover_url,
+        is_public,
+        is_favorites,
+        created_at,
+        songs:playlist_songs(count)
+      `)
+      .eq('creator_id', req.user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching user playlists:', error);
+      return res.status(500).json({ error: 'Failed to fetch playlists' });
+    }
+
+    res.json({
+      playlists: (playlists || []).map((p) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        coverUrl: p.cover_url,
+        isPublic: p.is_public,
+        isFavorites: p.is_favorites,
+        createdAt: p.created_at,
+        songCount: p.songs?.[0]?.count || 0
+      }))
+    });
+  } catch (error) {
+    console.error('Get user playlists error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 module.exports = router;

@@ -1,151 +1,298 @@
-# 🚀 NoteZ Music App - Setup Instructions
+# 🎵 NoteZ Music App# 🚀 NoteZ Music App - Setup Instructions
 
-## 📋 Prerequisites
 
-- Node.js 18+ and npm
+
+A modern music streaming platform with AI-powered recommendations and social features.## 📋 Prerequisites
+
+
+
+## 🌟 Features- Node.js 18+ and npm
+
 - Supabase account
-- Git
 
-## 🗄️ Database Setup
+### Core Features- Git
 
-### 1. Create Supabase Project
-1. Go to [supabase.com](https://supabase.com) and create a new project
+- User profiles and authentication
+
+- Music streaming and playlist management## 🗄️ Database Setup
+
+- Friend system and social features
+
+- Content creator dashboard### 1. Create Supabase Project
+
+- Advanced search functionality1. Go to [supabase.com](https://supabase.com) and create a new project
+
 2. Wait for the project to be ready
-3. Note down your project URL and service role key
 
-### 2. Run Database Schema
-1. Go to your Supabase project dashboard
+### 🤖 AI Features3. Note down your project URL and service role key
+
+- **Smart DJ Assistant**: Suggests songs based on emotional input
+
+- **Personalized Recommendations**: Based on listening history### 2. Run Database Schema
+
+- **Mood-Based Playlists**: AI-curated song collections1. Go to your Supabase project dashboard
+
 2. Navigate to SQL Editor
-3. Copy and paste the contents of `backend/supabase/schema.sql`
+
+## 🚀 Getting Started3. Copy and paste the contents of `backend/supabase/schema.sql`
+
 4. Run the script to create all tables and functions
 
-### 3. Create Storage Buckets
-1. Go to Storage in your Supabase dashboard
-2. Create a bucket named `songs` (for audio files)
+### Prerequisites
+
+- Node.js 18+ and npm### 3. Create Storage Buckets
+
+- Supabase account1. Go to Storage in your Supabase dashboard
+
+- Git2. Create a bucket named `songs` (for audio files)
+
 3. Create a bucket named `avatars` (for profile pictures)
-4. Set both buckets to public
 
-## 🔧 Backend Setup
+### Quick Start4. Set both buckets to public
 
-### 1. Install Dependencies
+1. Clone the repository
+
+2. Set up Supabase project## 🔧 Backend Setup
+
+3. Configure environment variables
+
+4. Run backend and frontend servers### 1. Install Dependencies
+
 ```bash
-cd backend
+
+[Detailed setup instructions](#setup-instructions)cd backend
+
 npm install
-```
 
-### 2. Environment Configuration
-Create a `.env` file in the `backend` directory:
+## 📋 Setup Instructions```
 
-```env
-# Server Configuration
-PORT=3001
+
+
+### 1. Database Setup### 2. Environment Configuration
+
+1. Create Supabase project at [supabase.com](https://supabase.com)Create a `.env` file in the `backend` directory:
+
+2. Run `backend/supabase/schema.sql` in SQL Editor
+
+3. Create storage buckets:```env
+
+   - `songs` for audio files# Server Configuration
+
+   - `avatars` for profile picturesPORT=3001
+
 NODE_ENV=development
 
-# JWT Configuration
-JWT_SECRET=your-super-secret-jwt-key-here-change-this-in-production
+### 2. Backend Setup
 
-# Supabase Configuration
-SUPABASE_URL=your-supabase-project-url
-SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
+```bash# JWT Configuration
 
-# Frontend URL (for CORS)
-FRONTEND_URL=http://localhost:5173
+cd backendJWT_SECRET=your-super-secret-jwt-key-here-change-this-in-production
 
-# Hugging Face API (for AI mood detection)
-HUGGINGFACE_API_KEY=your-huggingface-token
+npm install
+
+# Set up .env file (see .env.example)# Supabase Configuration
+
+npm run devSUPABASE_URL=your-supabase-project-url
+
+```SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
+
+
+
+### 3. Frontend Setup# Frontend URL (for CORS)
+
+```bashFRONTEND_URL=http://localhost:5173
+
+cd frontend
+
+npm install# Hugging Face API (for AI mood detection)
+
+# Set up .env file (see .env.example)HUGGINGFACE_API_KEY=your-huggingface-token
+
+npm run dev```
+
 ```
 
 ### 3. Start Backend Server
-```bash
+
+## 🧠 Smart Features Documentation```bash
+
 npm run dev
-```
 
-The server will start on `http://localhost:3001`
+### AI DJ Assistant```
 
-## 🎨 Frontend Setup
+The AI DJ suggests songs based on:
+
+- Emotional state detectionThe server will start on `http://localhost:3001`
+
+- Current mood analysis
+
+- Genre preferences## 🎨 Frontend Setup
+
+- Listening history
 
 ### 1. Install Dependencies
-```bash
-cd frontend
-npm install
-```
 
-### 2. Environment Configuration
-Create a `.env` file in the `frontend` directory:
+### Recommendation System```bash
 
-```env
+Personalized suggestions using:cd frontend
+
+- Recently played (last 20 songs)npm install
+
+- Most played (top 10)```
+
+- Category preferences
+
+- Friend activity### 2. Environment Configuration
+
+- Trending tracksCreate a `.env` file in the `frontend` directory:
+
+
+
+## 👥 User Roles```env
+
 VITE_SUPABASE_URL=your-supabase-project-url
-VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
-```
 
-### 3. Start Frontend Development Server
-```bash
+### Content CreatorsVITE_SUPABASE_ANON_KEY=your-supabase-anon-key
+
+- Upload and manage music```
+
+- View analytics and stats
+
+- Track song performance### 3. Start Frontend Development Server
+
+- Engage with listeners```bash
+
 npm run dev
-```
 
-The app will open at `http://localhost:5173`
+### Regular Users```
 
-## 🔐 Authentication Setup
+- Stream music
 
-### 1. Supabase Auth Configuration
+- Create playlistsThe app will open at `http://localhost:5173`
+
+- Follow creators
+
+- Connect with friends## 🔐 Authentication Setup
+
+
+
+## 🛠 Technical Architecture### 1. Supabase Auth Configuration
+
 1. Go to Authentication > Settings in your Supabase dashboard
-2. Enable Email authentication
-3. Configure your site URL and redirect URLs
-4. Optionally enable Google OAuth
 
-### 2. JWT Configuration
+### Frontend2. Enable Email authentication
+
+- React with TypeScript3. Configure your site URL and redirect URLs
+
+- Vite for build tooling4. Optionally enable Google OAuth
+
+- TailwindCSS for styling
+
+- Context API for state management### 2. JWT Configuration
+
 1. Go to Settings > API in your Supabase dashboard
-2. Copy the JWT secret
-3. Update your backend `.env` file
 
-## 📱 Testing the App
+### Backend2. Copy the JWT secret
+
+- Node.js Express server3. Update your backend `.env` file
+
+- Supabase for database
+
+- JWT authentication## 📱 Testing the App
+
+- Real-time features
 
 ### 1. User Registration
-1. Open the app in your browser
-2. Click "Create Account"
-3. Choose between "Normal User" or "Content Creator"
-4. Fill in your details and register
+
+## 🔐 Security Features1. Open the app in your browser
+
+- JWT authentication2. Click "Create Account"
+
+- Row Level Security (RLS)3. Choose between "Normal User" or "Content Creator"
+
+- File upload validation4. Fill in your details and register
+
+- User role management
 
 ### 2. Content Creator Features
-1. Login as a content creator
+
+## 📱 Feature Details1. Login as a content creator
+
 2. Upload songs with metadata
-3. View analytics dashboard
-4. Manage your music library
 
-### 3. Normal User Features
-1. Login as a normal user
+### Profile Management3. View analytics dashboard
+
+- Edit profile details4. Manage your music library
+
+- Upload profile pictures
+
+- View activity history### 3. Normal User Features
+
+- Manage preferences1. Login as a normal user
+
 2. Browse and search music
-3. Create playlists
-4. Add friends and follow creators
 
-## 🐛 Troubleshooting
+### Music Features3. Create playlists
+
+- Create/edit playlists4. Add friends and follow creators
+
+- Like/favorite songs
+
+- Share music## 🐛 Troubleshooting
+
+- Queue management
 
 ### Common Issues
 
-1. **CORS Errors**
-   - Ensure `FRONTEND_URL` is set correctly in backend `.env`
-   - Check that the frontend is running on the expected port
+### Social Features
+
+- Friend requests1. **CORS Errors**
+
+- Activity feed   - Ensure `FRONTEND_URL` is set correctly in backend `.env`
+
+- Music sharing   - Check that the frontend is running on the expected port
+
+- Real-time updates
 
 2. **Database Connection Issues**
-   - Verify Supabase credentials in `.env`
+
+## 🐛 Troubleshooting   - Verify Supabase credentials in `.env`
+
    - Check that the schema has been run successfully
 
-3. **File Upload Issues**
-   - Ensure storage buckets are created and public
-   - Check file size limits (50MB for audio, 5MB for images)
+### Common Issues
+
+1. **CORS Errors**: Check FRONTEND_URL in backend .env3. **File Upload Issues**
+
+2. **Upload Issues**: Verify storage bucket permissions   - Ensure storage buckets are created and public
+
+3. **Auth Problems**: Confirm JWT configuration   - Check file size limits (50MB for audio, 5MB for images)
+
+4. **Database Errors**: Validate Supabase credentials
 
 4. **Authentication Issues**
-   - Verify JWT secret is set correctly
-   - Check Supabase auth settings
 
-### Getting Help
+## 📈 Future Updates   - Verify JWT secret is set correctly
+
+1. Mobile app development   - Check Supabase auth settings
+
+2. Advanced analytics
+
+3. More AI features### Getting Help
+
+4. Enhanced social features
 
 - Check the browser console for frontend errors
-- Check the terminal for backend errors
-- Verify all environment variables are set
+
+## 🤝 Contributing- Check the terminal for backend errors
+
+Contributions are welcome! Please read our contributing guidelines first.- Verify all environment variables are set
+
 - Ensure all dependencies are installed
 
-## 🚀 Production Deployment
+## 📄 License
+
+This project is licensed under the MIT License.## 🚀 Production Deployment
 
 ### Backend
 1. Set `NODE_ENV=production`
