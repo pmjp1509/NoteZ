@@ -279,67 +279,81 @@ router.get('/song/:songId', authenticateToken, requireCreator, async (req, res) 
   }
 });
 
-// Track song play (called when user plays a song)
-router.post('/track-play', authenticateToken, async (req, res) => {
+// Track song play (called when user plays a song) - Optional auth for faster response
+router.post('/track-play', async (req, res) => {
   try {
-  const { songId, duration } = req.body;
-  const userId = req.user.id;
+    const token = req.headers.authorization?.split(' ')[1];
+    let userId = null;
+    
+    // Try to authenticate but don't fail if token is invalid
+    if (token) {
+      try {
+        const { data: { user }, error } = await supabase.auth.getUser(token);
+        if (!error && user) {
+          userId = user.id;
+        }
+      } catch (e) {
+        // Ignore auth errors for tracking
+      }
+    }
+
+    const { songId, duration } = req.body;
 
     if (!songId) {
-      return res.status(400).json({ error: 'Song ID is required' });
+      return res.json({ message: 'No song ID provided' });
     }
 
-    // Add to listening history
-    const { error: historyError } = await supabase
-      .from('listening_history')
-      .insert({
-        user_id: userId,
-        song_id: songId,
-        listen_duration: duration || 0
-      });
+    // Only track if user is authenticated
+    if (userId) {
+      // Add to listening history
+      try {
+        await supabase
+          .from('listening_history')
+          .insert({
+            user_id: userId,
+            song_id: songId,
+            listen_duration: duration || 0
+          });
+      } catch (e) {
+        // Ignore errors for fast response
+      }
 
-    if (historyError) {
-      console.error('Failed to add to listening history:', historyError);
-    }
+      // Update song analytics
+      try {
+        const { data: existingAnalytics } = await supabase
+          .from('song_analytics')
+          .select('id, play_count')
+          .eq('song_id', songId)
+          .eq('listener_id', userId)
+          .maybeSingle();
 
-    // Update song analytics
-    const { data: existingAnalytics, error: fetchError } = await supabase
-      .from('song_analytics')
-      .select('id, play_count')
-      .eq('song_id', songId)
-      .eq('listener_id', userId)
-      .single();
-
-    if (fetchError && fetchError.code !== 'PGRST116') {
-      console.error('Failed to fetch existing analytics:', fetchError);
-    }
-
-    if (existingAnalytics) {
-      // Update existing record
-      await supabase
-        .from('song_analytics')
-        .update({
-          play_count: existingAnalytics.play_count + 1,
-          last_played: new Date().toISOString()
-        })
-        .eq('id', existingAnalytics.id);
-    } else {
-      // Create new record
-      await supabase
-        .from('song_analytics')
-        .insert({
-          song_id: songId,
-          listener_id: userId,
-          play_count: 1,
-          last_played: new Date().toISOString()
-        });
+        if (existingAnalytics) {
+          await supabase
+            .from('song_analytics')
+            .update({
+              play_count: existingAnalytics.play_count + 1,
+              last_played: new Date().toISOString()
+            })
+            .eq('id', existingAnalytics.id);
+        } else {
+          await supabase
+            .from('song_analytics')
+            .insert({
+              song_id: songId,
+              listener_id: userId,
+              play_count: 1,
+              last_played: new Date().toISOString()
+            });
+        }
+      } catch (e) {
+        // Ignore errors for fast response
+      }
     }
 
     res.json({ message: 'Play tracked successfully' });
 
   } catch (error) {
-    console.error('Track play error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.json({ message: 'Tracked' }); // Always succeed to avoid blocking UI
   }
 });
 

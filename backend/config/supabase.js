@@ -11,6 +11,19 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey, {
   auth: {
     autoRefreshToken: false,
     persistSession: false
+  },
+  db: {
+    schema: 'public',
+  },
+  global: {
+    headers: { 'x-my-custom-header': 'notez-backend' },
+  },
+  // Add timeout settings to handle connection issues
+  fetch: (url, options = {}) => {
+    return fetch(url, {
+      ...options,
+      signal: options.signal || AbortSignal.timeout(15000) // 15 second timeout
+    });
   }
 });
 

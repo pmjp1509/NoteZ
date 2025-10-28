@@ -142,6 +142,26 @@ export function ContentCreatorDashboard() {
   const [albumSongs, setAlbumSongs] = useState<any[]>([]); // songs currently in album
   const [availableSongs, setAvailableSongs] = useState<Song[]>([]); // songs not in album
   const [selectedSongIds, setSelectedSongIds] = useState<string[]>([]);
+  const [selectedPlaylist, setSelectedPlaylist] = useState<Playlist | null>(null);
+  const [playlistSongs, setPlaylistSongs] = useState<any[]>([]);
+  const [showPlaylistDetail, setShowPlaylistDetail] = useState(false);
+
+  const handlePlaylistClick = async (playlist: Playlist) => {
+    setSelectedPlaylist(playlist);
+    setShowPlaylistDetail(true);
+    try {
+      const response = await fetch(`http://localhost:3001/api/playlists/${playlist.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const songs = data.playlist?.songs || data.songs || [];
+        setPlaylistSongs(songs);
+      }
+    } catch (error) {
+      console.error('Failed to fetch playlist songs:', error);
+    }
+  };
 
   useEffect(() => {
     fetchProfile();
@@ -797,11 +817,174 @@ export function ContentCreatorDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-6 pb-28">
-      {/* Profile Section */}
-      {profile && (
-        <Card className="bg-black/40 border-white/20 mb-6">
-          <CardContent className="p-6">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 pb-28">
+      {/* Search bar at top */}
+      <div className="sticky top-0 z-50 bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900 p-4 border-b border-white/10">
+        <div className="flex justify-center">
+          <div className="w-full max-w-2xl mx-0">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search songs, artists, or albums..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
+                className="w-full pl-10 pr-24 py-2 bg-white/5 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              />
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                {searchQuery && (
+                  <button onClick={clearSearch} className="p-1.5 text-gray-400 hover:text-white transition-colors">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+                <button
+                  aria-label="Search"
+                  onClick={handleSearch}
+                  disabled={isSearching}
+                  className="px-3 py-1.5 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-md transition-all disabled:opacity-50"
+                >
+                  <Search className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {showSearchResults && (
+        <div className="p-6">
+          <div className="max-w-6xl mx-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-white">Search Results</h3>
+              <Button variant="ghost" size="sm" onClick={clearSearch} className="text-gray-400 hover:text-white">
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+
+            {/* Songs */}
+            {searchResults.length > 0 && (
+              <div className="mb-6">
+                <h4 className="text-sm text-gray-300 font-medium mb-3">Songs</h4>
+                <div className="grid grid-cols-1 gap-3">
+                  {searchResults.map(s => (
+                    <div
+                      key={s.id || s.path}
+                      onClick={() => playSong(s)}
+                      className="p-3 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 cursor-pointer transition"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
+                          <Music className="w-6 h-6 text-white" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-white font-medium truncate">{s.name}</p>
+                          <p className="text-gray-400 text-sm truncate">{s.movie || 'Unknown'}</p>
+                        </div>
+                        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                          <Button size="sm" variant="ghost" onClick={() => playSong(s)} title="Play">
+                            <Play className="w-4 h-4" />
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => addToQueue(s)} title="Add to Queue">
+                            <Plus className="w-4 h-4" />
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => addToPlaylist(s)} title="Add to Playlist">
+                            <ListPlus className="w-4 h-4" />
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="ghost" 
+                            onClick={() => toggleFavorite(s)}
+                            title="Toggle Favorite"
+                            className={likedIds.has(s.id) ? 'text-pink-500' : ''}
+                          >
+                            <Heart className={`w-4 h-4 ${likedIds.has(s.id) ? 'fill-current' : ''}`} />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Albums */}
+            {albumResults.length > 0 && (
+              <div className="mb-6">
+                <h4 className="text-sm text-gray-300 font-medium mb-3">Albums</h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {albumResults.map(album => (
+                    <div
+                      key={album.id}
+                      className="p-3 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 cursor-pointer transition"
+                      onClick={() => window.dispatchEvent(new CustomEvent('openAlbum', { detail: { albumId: album.id } }))}
+                    >
+                      <div className="w-full aspect-square rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 mb-2 flex items-center justify-center">
+                        <Album className="w-8 h-8 text-white" />
+                      </div>
+                      <p className="text-white font-medium text-sm truncate">{album.title || album.name}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Playlists */}
+            {playlistResults.length > 0 && (
+              <div className="mb-6">
+                <h4 className="text-sm text-gray-300 font-medium mb-3">Playlists</h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {playlistResults.map(playlist => (
+                    <div
+                      key={playlist.id}
+                      className="p-3 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 cursor-pointer transition"
+                      onClick={() => handlePlaylistClick(playlist)}
+                    >
+                      <div className="w-full aspect-square rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 mb-2 flex items-center justify-center">
+                        <ListMusic className="w-8 h-8 text-white" />
+                      </div>
+                      <p className="text-white font-medium text-sm truncate">{playlist.name || playlist.title}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Artists */}
+            {artistResults.length > 0 && (
+              <div>
+                <h4 className="text-sm text-gray-300 font-medium mb-3">Artists</h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {artistResults.map(artist => (
+                    <div
+                      key={artist.id}
+                      className="p-3 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 cursor-pointer transition"
+                      onClick={() => window.dispatchEvent(new CustomEvent('openCreator', { detail: { creatorId: artist.id } }))}
+                    >
+                      <div className="w-full aspect-square rounded-full bg-gradient-to-br from-purple-500 to-pink-500 mb-2 flex items-center justify-center mx-auto">
+                        <User className="w-8 h-8 text-white" />
+                      </div>
+                      <p className="text-white font-medium text-sm truncate text-center">{artist.name || artist.username}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {searchResults.length === 0 && albumResults.length === 0 && playlistResults.length === 0 && artistResults.length === 0 && (
+              <div className="text-center py-12">
+                <p className="text-gray-400">No results found</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="p-6 pt-6">
+        {/* Profile Section */}
+        {profile && (
+          <Card className="bg-black/40 border-white/20 mb-6">
+            <CardContent className="p-6 pt-8">
             <div className="flex items-center gap-6">
               <img 
                 src={profile.avatarUrl || '/default-avatar.png'} 
@@ -957,116 +1140,12 @@ export function ContentCreatorDashboard() {
         </div>
       )}
 
-      {/* Search bar (creator) */}
-      <div className="flex justify-center mb-6">
-        <div className="w-full max-w-2xl mx-0">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search songs, artists, or albums..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }}
-              className="w-full pl-10 pr-24 py-2 bg-white/5 border border-white/20 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            />
-            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-2">
-              {searchQuery && (
-                <button onClick={clearSearch} className="p-1.5 text-gray-400 hover:text-white transition-colors">
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-              <button
-                aria-label="Search"
-                onClick={handleSearch}
-                disabled={isSearching}
-                className="px-3 py-1.5 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white rounded-md transition-all disabled:opacity-50"
-              >
-                <Search className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-      {showSearchResults && (
-            <div className="mt-3 bg-black/70 border border-white/10 rounded-lg max-h-72 overflow-auto p-3">
-              {searchResults.length === 0 && artistResults.length === 0 && albumResults.length === 0 && (
-                <div className="text-gray-400">No results found</div>
-              )}
-
-              {searchResults.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="text-sm text-gray-300 font-medium">Songs</h4>
-                  {searchResults.map(s => (
-                    <div
-                      key={s.id || s.path}
-                      onClick={() => playSong(s)}
-                      className="p-2 rounded hover:bg-white/5 cursor-pointer"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="text-white font-medium">{s.name}</div>
-                          {s.movie && <div className="text-xs text-gray-400">{s.movie}</div>}
-                        </div>
-                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                          <button aria-label="Add to queue" className="w-8 h-8 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition" onClick={() => setQueue(prev => [...prev, s])}>
-                            <Plus className="w-4 h-4" />
-                          </button>
-                          <button aria-label="Add to playlist" className="w-8 h-8 flex items-center justify-center rounded-md bg-white/10 hover:bg-white/15 text-white transition" onClick={() => alert('Add to playlist - not implemented yet')}>
-                            <ListPlus className="w-4 h-4" />
-                          </button>
-                          <button aria-label="Like" className={`w-8 h-8 flex items-center justify-center rounded-md transition ${s.id && likedIds.has(s.id) ? 'bg-pink-600/20 text-pink-400' : 'bg-white/10 hover:bg-white/15 text-white'}`} onClick={() => {
-                            if (!s.id) return;
-                            const id = s.id;
-                            setLikedIds(prev => {
-                              const next = new Set(prev);
-                              if (next.has(id)) next.delete(id); else next.add(id);
-                              return next;
-                            });
-                          }}>
-                            <Heart className={`w-4 h-4 ${s.id && likedIds.has(s.id) ? 'fill-pink-500' : ''}`} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {artistResults.length > 0 && (
-                <div className="mt-3">
-                  <h4 className="text-sm text-gray-300 font-medium">Artists</h4>
-                  {artistResults.map((a: any) => (
-                    <div key={a.id || a.username} className="p-2 rounded hover:bg-white/5 text-gray-200">{a.name || a.username}</div>
-                  ))}
-                </div>
-              )}
-
-              {albumResults.length > 0 && (
-                <div className="mt-3">
-                  <h4 className="text-sm text-gray-300 font-medium">Albums</h4>
-                  {albumResults.map((al: any) => (
-                    <div key={al.id} className="p-2 rounded hover:bg-white/5 text-gray-200">{al.title || al.name}</div>
-                  ))}
-                </div>
-              )}
-              {playlistResults.length > 0 && (
-                <div className="mt-3">
-                  <h4 className="text-sm text-gray-300 font-medium">Playlists</h4>
-                  {playlistResults.map((pl: any) => (
-                    <div key={pl.id || pl.name} className="p-2 rounded hover:bg-white/5 text-gray-200">{pl.title || pl.name}</div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
 
       {/* Stats */}
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <Card className="bg-black/40 border-white/20">
-            <CardContent className="p-4">
+            <CardContent className="p-6 pt-6">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-purple-500/20 rounded-lg">
                   <Music className="w-6 h-6 text-purple-400" />
@@ -1247,7 +1326,11 @@ export function ContentCreatorDashboard() {
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {playlists.map((playlist) => (
-                    <div key={playlist.id} className="p-4 bg-white/5 rounded-lg">
+                    <div 
+                      key={playlist.id} 
+                      className="p-4 bg-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition"
+                      onClick={() => handlePlaylistClick(playlist)}
+                    >
                       <img src={playlist.coverUrl || '/placeholder-playlist.jpg'} alt={playlist.name} className="w-full aspect-square rounded-lg mb-2" />
                       <h4 className="text-white font-medium">{playlist.name}</h4>
                       <p className="text-sm text-gray-400">{playlist.songCount || 0} songs</p>
@@ -1589,6 +1672,66 @@ export function ContentCreatorDashboard() {
         songPath={selectedSong?.id || ''}
       />
 
+      {/* Playlist Detail Modal */}
+      {showPlaylistDetail && selectedPlaylist && (
+        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[9999]">
+          <Card className="w-full max-w-4xl bg-black/95 border-white/30 max-h-[90vh] overflow-y-auto">
+            <CardHeader className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-white text-2xl">{selectedPlaylist.name}</CardTitle>
+                <p className="text-gray-400 mt-1">{selectedPlaylist.description || 'No description'}</p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => { setShowPlaylistDetail(false); setSelectedPlaylist(null); }}>
+                <X className="w-5 h-5" />
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {playlistSongs.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400">No songs in this playlist</div>
+                ) : (
+                  playlistSongs.map((song, index) => (
+                    <div
+                      key={song.id}
+                      className="flex items-center gap-3 p-3 bg-white/5 rounded-lg hover:bg-white/10 cursor-pointer transition"
+                      onClick={() => playSong(song)}
+                    >
+                      <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-white font-bold flex-shrink-0">
+                        {index + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white font-medium truncate">{song.title || song.name}</p>
+                        <p className="text-gray-400 text-sm truncate">{song.artist || song.movie || 'Unknown'}</p>
+                      </div>
+                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        <Button size="sm" variant="ghost" onClick={() => playSong(song)} title="Play">
+                          <Play className="w-4 h-4" />
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => addToQueue(song)} title="Add to Queue">
+                          <Plus className="w-4 h-4" />
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => addToPlaylist(song)} title="Add to Playlist">
+                          <ListPlus className="w-4 h-4" />
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          variant="ghost" 
+                          onClick={() => toggleFavorite(song)}
+                          title="Toggle Favorite"
+                          className={likedIds.has(song.id) ? 'text-pink-500' : ''}
+                        >
+                          <Heart className={`w-4 h-4 ${likedIds.has(song.id) ? 'fill-current' : ''}`} />
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Bottom player for creator - allows basic listening */}
       <BottomPlayer
         song={currentSong}
@@ -1607,6 +1750,7 @@ export function ContentCreatorDashboard() {
         onShowLyrics={() => window.dispatchEvent(new CustomEvent('showLyrics', { detail: { lyrics: currentSong?.lyrics, title: (currentSong as any)?.title || (currentSong as any)?.name, artist: (currentSong as any)?.artist } }))}
         queueLength={queue.length}
       />
+      </div>
     </div>
   );
 }

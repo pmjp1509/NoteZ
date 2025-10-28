@@ -33,9 +33,9 @@ class ApiClient {
 
   constructor(options: ApiClientOptions = {}) {
     this.baseUrl = options.baseUrl || 'http://localhost:3001';
-    this.maxRetries = options.maxRetries || 3;
-    this.retryDelay = options.retryDelay || 1000; // 1 second
-    this.timeout = options.timeout || 30000; // 30 seconds
+    this.maxRetries = options.maxRetries || 1; // Reduced to 1 for faster response
+    this.retryDelay = options.retryDelay || 300; // Reduced to 300ms
+    this.timeout = options.timeout || 10000; // Reduced to 10 seconds
   }
 
   /**
@@ -118,7 +118,6 @@ class ApiClient {
     // Check for pending identical request (deduplication)
     const pendingRequest = this.pendingRequests.get(cacheKey);
     if (pendingRequest && options.method === 'GET') {
-      console.log(`🔄 Deduplicating request to ${endpoint}`);
       return pendingRequest.promise;
     }
 
@@ -200,7 +199,6 @@ class ApiClient {
           const retryAfter = this.getRetryAfter(response);
           const delay = retryAfter || this.getBackoffDelay(attempt);
           
-          console.warn(`⏳ Rate limited, retrying after ${delay}ms (attempt ${attempt + 1}/${this.maxRetries + 1})`);
           await this.sleep(delay);
           continue;
         }
@@ -221,7 +219,6 @@ class ApiClient {
           }
 
           const delay = this.getBackoffDelay(attempt);
-          console.warn(`⏳ Server error, retrying after ${delay}ms (attempt ${attempt + 1}/${this.maxRetries + 1})`);
           await this.sleep(delay);
           continue;
         }
@@ -240,7 +237,6 @@ class ApiClient {
         }
 
         const delay = this.getBackoffDelay(attempt);
-        console.warn(`⏳ Request failed, retrying after ${delay}ms (attempt ${attempt + 1}/${this.maxRetries + 1}):`, error);
         await this.sleep(delay);
       }
     }
