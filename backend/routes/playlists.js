@@ -188,6 +188,112 @@ router.get('/search', tryAuthenticate, async (req, res) => {
   }
 });
 
+// Get playlists by a specific user ID (for profile pages)
+// router.get('/user/:userId', tryAuthenticate, async (req, res) => {
+//   try {
+//     const { userId } = req.params;
+    
+//     if (!userId) {
+//       return res.status(400).json({ error: 'User ID is required' });
+//     }
+
+//     // Get playlists for the user (public only unless viewer is friend)
+//     const { data: playlists, error } = await supabase
+//       .from('playlists')
+//       .select(`
+//         id,
+//         name,
+//         description,
+//         cover_url,
+//         is_public,
+//         is_favorites,
+//         created_at,
+//         updated_at,
+//         songs:playlist_songs(count)
+//       `)
+//       .eq('creator_id', userId)
+//       .order('created_at', { ascending: false });
+
+//     if (error) {
+//       console.error('Error fetching user playlists:', error);
+//       return res.status(500).json({ error: 'Failed to fetch playlists' });
+//     }
+
+//     res.json({
+//       playlists: (playlists || []).map(p => ({
+//         id: p.id,
+//         name: p.name,
+//         description: p.description,
+//         coverUrl: p.cover_url,
+//         isPublic: p.is_public,
+//         isFavorites: p.is_favorites,
+//         createdAt: p.created_at,
+//         songCount: p.songs?.[0]?.count || 0
+//       }))
+//     });
+//   } catch (error) {
+//     console.error('Get user playlists error:', error);
+//     res.status(500).json({ error: 'Internal server error' });
+//   }
+// });
+
+router.get('/user/:userId', tryAuthenticate, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const viewerId = req.user?.id;
+    let canSeePrivate = false;
+
+    // Determine if viewer is self or friend
+    if (viewerId && viewerId === userId) {
+      canSeePrivate = true;
+    } else if (viewerId) {
+      // Check for friendship in friend_requests table
+      const { data: friendship } = await supabase
+        .from('friend_requests')
+        .select('*')
+        .or(`(sender_id.eq.${viewerId},receiver_id.eq.${userId})`, `(sender_id.eq.${userId},receiver_id.eq.${viewerId})`)
+        .eq('status', 'accepted')
+        .maybeSingle();
+      if (friendship) canSeePrivate = true;
+    }
+
+    let query = supabase
+      .from('playlists')
+      .select(`
+        id, name, description, cover_url, is_public, is_favorites, created_at, updated_at, songs:playlist_songs(count)
+      `)
+      .eq('creator_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (!canSeePrivate) {
+      query = query.eq('is_public', true);
+    }
+
+    const { data: playlists, error } = await query;
+
+    if (error) {
+      console.error('Error fetching user playlists:', error);
+      return res.status(500).json({ error: 'Failed to fetch playlists' });
+    }
+
+    return res.json({
+      playlists: (playlists || []).map(p => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        coverUrl: p.cover_url,
+        isPublic: p.is_public,
+        isFavorites: p.is_favorites,
+        createdAt: p.created_at,
+        songCount: p.songs?.[0]?.count || 0
+      }))
+    });
+  } catch (error) {
+    console.error('Get user playlists error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 function tryAuthenticate(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
   if (token) {

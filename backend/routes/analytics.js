@@ -284,28 +284,19 @@ router.post('/track-play', async (req, res) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
     let userId = null;
-    
-    // Try to authenticate but don't fail if token is invalid
     if (token) {
       try {
         const { data: { user }, error } = await supabase.auth.getUser(token);
         if (!error && user) {
           userId = user.id;
         }
-      } catch (e) {
-        // Ignore auth errors for tracking
-      }
+      } catch (e) {}
     }
-
     const { songId, duration } = req.body;
-
     if (!songId) {
       return res.json({ message: 'No song ID provided' });
     }
-
-    // Only track if user is authenticated
     if (userId) {
-      // Add to listening history
       try {
         await supabase
           .from('listening_history')
@@ -314,11 +305,7 @@ router.post('/track-play', async (req, res) => {
             song_id: songId,
             listen_duration: duration || 0
           });
-      } catch (e) {
-        // Ignore errors for fast response
-      }
-
-      // Update song analytics
+      } catch (e) {}
       try {
         const { data: existingAnalytics } = await supabase
           .from('song_analytics')
@@ -326,7 +313,6 @@ router.post('/track-play', async (req, res) => {
           .eq('song_id', songId)
           .eq('listener_id', userId)
           .maybeSingle();
-
         if (existingAnalytics) {
           await supabase
             .from('song_analytics')
@@ -345,15 +331,100 @@ router.post('/track-play', async (req, res) => {
               last_played: new Date().toISOString()
             });
         }
-      } catch (e) {
-        // Ignore errors for fast response
-      }
+      } catch (e) {}
+    }
+    // Always increment total_listens in songs table
+    try {
+      await supabase.rpc('increment_song_listens', { p_song_id: songId });
+    } catch (e) {
+      // fallback: direct update if RPC is not present
+      await supabase
+        .from('songs')
+        .update({ total_listens: supabase.raw('COALESCE(total_listens, 0) + 1') })
+        .eq('id', songId);
+    }
+    res.json({ message: 'Play tracked successfully' });
+  } catch (error) {
+    res.json({ message: 'Tracked' });
+  }
+});
+
+// Get user activity (for profile pages - no auth required for public activity)
+router.get('/activity/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const limit = parseInt(req.query.limit) || 10;
+
+    // OPTIMIZATION: run all queries in parallel for speed
+    const [activityResult, countResult, topSongsResult] = await Promise.all([
+      supabase
+        .from('listening_history')
+        .select(`
+          id,
+          listened_at,
+          listen_duration,
+          songs:listening_history_song_id_fkey(
+            id,
+            title,
+            artist,
+            cover_url
+          )
+        `)
+        .eq('user_id', userId)
+        .order('listened_at', { ascending: false })
+        .limit(limit),
+      supabase
+        .from('listening_history')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId),
+      supabase
+        .from('listening_history')
+        .select('song_id, songs!listening_history_song_id_fkey(id,title,artist,cover_url)')
+        .eq('user_id', userId)
+        .limit(100)
+    ]);
+
+    const activities = activityResult.data || [];
+    const error = activityResult.error;
+    const totalListens = countResult.count;
+    const topSongs = topSongsResult.data || [];
+
+    if (error) {
+      console.error('Error fetching activity:', error);
+      return res.status(500).json({ error: 'Failed to fetch activity' });
     }
 
-    res.json({ message: 'Play tracked successfully' });
+    // Optimize: Count and extract top 5 most played songs
+    const songCounts = {};
+    topSongs.forEach(item => {
+      if (item.songs) {
+        const songId = item.song_id;
+        if (!songCounts[songId]) {
+          songCounts[songId] = { song: item.songs, count: 0 };
+        }
+        songCounts[songId].count++;
+      }
+    });
+    const top5Songs = Object.values(songCounts)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5)
+      .map(item => ({ ...item.song, playCount: item.count }));
 
+    res.json({
+      recentActivity: activities.map(a => ({
+        id: a.id,
+        listenedAt: a.listened_at,
+        duration: a.listen_duration,
+        song: a.songs
+      })),
+      stats: {
+        totalListens: totalListens || 0,
+        topSongs: top5Songs
+      }
+    });
   } catch (error) {
-    res.json({ message: 'Tracked' }); // Always succeed to avoid blocking UI
+    console.error('Get activity error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

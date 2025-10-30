@@ -221,7 +221,7 @@ export default function CreatorDetail({ creatorId, onPlay, onAddToQueue, onToggl
                       </div>
                       <div>
                         <p className="text-white font-medium truncate">{a.title}</p>
-                        <p className="text-gray-400 text-sm mt-0.5">{a.songCount || 0} songs</p>
+                        {/* Song count removed here */}
                       </div>
                 </div>
               ))}

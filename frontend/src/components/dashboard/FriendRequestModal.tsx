@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { X, UserPlus, Search, Loader2, Users, UserMinus } from 'lucide-react';
@@ -25,6 +26,7 @@ interface FriendRequestModalProps {
 }
 
 export function FriendRequestModal({ isOpen, onClose }: FriendRequestModalProps) {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'friends' | 'search'>('friends');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<User[]>([]);
@@ -244,7 +246,8 @@ export function FriendRequestModal({ isOpen, onClose }: FriendRequestModalProps)
                   {friends.map((friend) => (
                     <div
                       key={friend.id}
-                      className="flex items-center space-x-3 p-3 bg-white/5 border border-white/10 rounded-lg"
+                      className="flex items-center space-x-3 p-3 bg-white/5 border border-white/10 rounded-lg cursor-pointer hover:bg-white/10 transition-colors"
+                      onClick={() => navigate(`/profile/${friend.id}`)}
                     >
                       <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
                         {friend.avatarUrl ? (
@@ -271,7 +274,7 @@ export function FriendRequestModal({ isOpen, onClose }: FriendRequestModalProps)
                         </p>
                       </div>
                       <Button
-                        onClick={() => removeFriend(friend.id)}
+                        onClick={(e) => { e.stopPropagation(); removeFriend(friend.id); }}
                         variant="outline"
                         size="sm"
                         className="text-red-400 border-red-400/20 hover:bg-red-500/10 hover:text-red-300"

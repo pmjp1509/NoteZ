@@ -48,9 +48,18 @@ interface Playlist {
 
 interface RecentActivity {
   id: string;
-  type: 'played_song' | 'created_playlist' | 'liked_song';
-  description: string;
-  timestamp: string;
+  listenedAt: string;
+  duration: number;
+  song?: {
+    id: string;
+    title: string;
+    artist: string;
+    cover_url: string;
+    audio_url: string;
+  };
+  type?: 'played_song' | 'created_playlist' | 'liked_song';
+  description?: string;
+  timestamp?: string;
   metadata?: any;
 }
 
@@ -160,15 +169,15 @@ export default function PublicProfilePage() {
   const fetchRecentActivity = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:3001/api/users/${userId}/activity`, {
-        headers: {
+      const response = await fetch(`http://localhost:3001/api/analytics/activity/${userId}?limit=10`, {
+        headers: token ? {
           'Authorization': `Bearer ${token}`
-        }
+        } : {}
       });
 
       if (response.ok) {
         const data = await response.json();
-        setRecentActivity(data.activities || []);
+        setRecentActivity(data.recentActivity || []);
       }
     } catch (error) {
       console.error('Failed to fetch recent activity:', error);
@@ -581,11 +590,19 @@ export default function PublicProfilePage() {
                   recentActivity.length > 0 ? (
                     <div className="space-y-3">
                       {recentActivity.slice(0, 5).map((activity) => (
-                        <div key={activity.id} className="flex items-center space-x-3 text-sm">
-                          <div className="w-2 h-2 bg-purple-400 rounded-full flex-shrink-0"></div>
-                          <div className="flex-1">
-                            <p className="text-gray-300">{activity.description}</p>
-                            <p className="text-xs text-gray-500">{new Date(activity.timestamp).toLocaleDateString()}</p>
+                        <div key={activity.id} className="flex items-center space-x-3 text-sm p-2 rounded-lg hover:bg-white/5 transition">
+                          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
+                            {activity.song?.cover_url ? (
+                              <img src={activity.song.cover_url} alt="Cover" className="w-full h-full rounded-lg object-cover" />
+                            ) : (
+                              <Music className="w-5 h-5 text-white" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-white font-medium truncate">
+                              {activity.song ? `${activity.song.title} by ${activity.song.artist}` : activity.description || 'Listened to music'}
+                            </p>
+                            <p className="text-xs text-gray-400">{new Date(activity.listenedAt || activity.timestamp || '').toLocaleDateString()}</p>
                           </div>
                         </div>
                       ))}

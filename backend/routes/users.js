@@ -830,10 +830,11 @@ router.get('/creators/:id/top-songs', tryAuthenticate, async (req, res) => {
 
     const { data: songs, error } = await supabase
       .from('songs')
-      .select('id, title, artist, movie, audio_url, cover_url, created_at')
+      .select(`
+        id, title, artist, movie, audio_url, cover_url, created_at, song_analytics(play_count)
+      `)
       .eq('creator_id', id)
       .eq('is_public', true)
-      .order('created_at', { ascending: false })
       .limit(limit);
 
     if (error) {
@@ -841,7 +842,19 @@ router.get('/creators/:id/top-songs', tryAuthenticate, async (req, res) => {
       return res.status(500).json({ error: 'Failed to get creator songs' });
     }
 
-    res.json({ songs });
+    // Compute total listens for each song
+    const mappedSongs = (songs || []).map(song => ({
+      id: song.id,
+      title: song.title,
+      artist: song.artist,
+      movie: song.movie,
+      audio_url: song.audio_url,
+      cover_url: song.cover_url,
+      created_at: song.created_at,
+      listens: (song.song_analytics || []).reduce((sum, a) => sum + (a.play_count || 0), 0)
+    }));
+
+    res.json({ songs: mappedSongs });
   } catch (error) {
     console.error('Get creator songs error:', error);
     res.status(500).json({ error: 'Internal server error' });
